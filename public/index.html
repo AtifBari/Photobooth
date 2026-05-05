@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -207,20 +206,12 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);
         <label>Visa Category <span class="req">*</span></label>
         <select id="visaCat" onchange="updatePurpose()">
           <option value="">Select visa category…</option>
-          <optgroup label="Passport Renewal">
-            <option value="uk-passport">🇬🇧 UK Passport / Renewal</option>
-            <option value="us-passport">🇺🇸 US Passport / Renewal</option>
-            <option value="eu-passport">🇪🇺 EU Passport / Renewal</option>
-            <option value="indian-passport">🇮🇳 Indian Passport / PCC / GEP / Renunciation</option>
-            <option value="pakistani-passport">🇵🇰 Pakistani Passport / NICOP / POC</option>
-            <option value="bangladeshi-passport">🇧🇩 Bangladeshi Passport</option>
-            <option value="sri-lankan-passport">🇱🇰 Sri Lankan Passport</option>
-            <option value="nigerian-passport">🇳🇬 Nigerian Passport</option>
-            <option value="ghanaian-passport">🇬🇭 Ghanaian Passport</option>
-            <option value="other-passport">🌍 Other Nationality Passport</option>
+          <optgroup label="India">
+            <option value="indian-passport">🇮🇳 Indian Passport / PCC / Surrender</option>
+            <option value="india-visa">🇮🇳 India e-Visa / OCI Card</option>
           </optgroup>
           <optgroup label="Schengen / Europe">
-            <option value="schengen">🇪🇺 Schengen Visa (any country)</option>
+            <option value="schengen">🇪🇺 Schengen Visa (EU Countries)</option>
             <option value="france-visa">🇫🇷 France Visa</option>
             <option value="germany-visa">🇩🇪 Germany Visa</option>
             <option value="italy-visa">🇮🇹 Italy Visa</option>
@@ -246,7 +237,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);
             <option value="oman-visa">🇴🇲 Oman Visa</option>
           </optgroup>
           <optgroup label="Asia">
-            <option value="india-visa">🇮🇳 India e-Visa / OCI / PIO</option>
             <option value="china-visa">🇨🇳 China Visa</option>
             <option value="japan-visa">🇯🇵 Japan Visa</option>
             <option value="singapore-visa">🇸🇬 Singapore Visa / PR</option>
@@ -261,6 +251,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);
             <option value="kenya-visa">🇰🇪 Kenya e-Visa</option>
             <option value="southafrica-visa">🇿🇦 South Africa Visa</option>
             <option value="ethiopia-visa">🇪🇹 Ethiopia Visa</option>
+          </optgroup>
+          <optgroup label="Passport Renewal">
+            <option value="uk-passport">🇬🇧 UK Passport / Renewal</option>
+            <option value="us-passport">🇺🇸 US Passport / Renewal</option>
+            <option value="eu-passport">🇪🇺 EU Passport / Renewal</option>
+            <option value="pakistani-passport">🇵🇰 Pakistani Passport / NICOP / POC</option>
+            <option value="bangladeshi-passport">🇧🇩 Bangladeshi Passport</option>
+            <option value="sri-lankan-passport">🇱🇰 Sri Lankan Passport</option>
+            <option value="nigerian-passport">🇳🇬 Nigerian Passport</option>
+            <option value="ghanaian-passport">🇬🇭 Ghanaian Passport</option>
+            <option value="other-passport">🌍 Other Nationality Passport</option>
           </optgroup>
           <optgroup label="Other Documents">
             <option value="driving">🚗 Driving Licence</option>
@@ -599,7 +600,7 @@ const PURPOSES={
   'uk-passport':    ['UK Passport — 35×45mm (white or light grey background)'],
   'us-passport':    ['US Passport — 51×51mm / 2×2 inch (white background)'],
   'eu-passport':    ['EU Passport — 35×45mm (white or light grey background)'],
-  'indian-passport':['Indian Passport (Passport Seva) — 35×45mm','OCI Card — 51×51mm / 2×2 inch (square)','India e-Visa — 51×51mm / 2×2 inch (square)','PCC / Police Clearance — 35×45mm','GEP / Renunciation — 35×45mm'],
+  'indian-passport':['Indian Passport / PCC / Surrender / Renunciation — 35×45mm'],
   'pakistani-passport':['Pakistani Passport — 35×45mm','NICOP / POC / CNIC — 35×45mm'],
   'bangladeshi-passport':['Bangladeshi Passport — 35×45mm','National ID (NID) — 35×45mm'],
   'sri-lankan-passport':['Sri Lankan Passport — 35×45mm'],
@@ -630,7 +631,7 @@ const PURPOSES={
   'bahrain-visa':   ['Bahrain Visa — 40×60mm (white background)','Bahrain CPR — 40×60mm'],
   'oman-visa':      ['Oman Visa — 40×60mm (white background)'],
   // ── Asia ──────────────────────────────────────────────
-  'india-visa':     ['India e-Visa — 51×51mm / 2×2 inch (square)','OCI Card — 51×51mm / 2×2 inch (square)','PIO Card — 35×45mm'],
+  'india-visa':     ['India e-Visa / OCI Card — 51×51mm / 2×2 inch (square)'],
   'china-visa':     ['China Visa — 33×48mm (white background)'],
   'japan-visa':     ['Japan Visa — 35×45mm (white background)'],
   'singapore-visa': ['Singapore Visa — 35×45mm','Singapore PR — 35×45mm'],
