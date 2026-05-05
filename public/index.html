@@ -341,7 +341,6 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);
       </div>
       <div class="realtime-tracker" id="rtTracker">
         <div class="rt-title">Processing your photo</div>
-        <div class="rt-step" id="rt0"><div class="rt-icon">🤖</div><div style="flex:1"><div class="rt-label">Checking photo quality</div><div class="rt-sub">AI checking face, glasses, lighting &amp; more</div></div><span class="rt-badge pending" id="rt0-badge">Waiting</span></div>
         <div class="rt-step" id="rt1"><div class="rt-icon">📤</div><div style="flex:1"><div class="rt-label">Uploading photo</div><div class="rt-sub">Sending to processing server</div></div><span class="rt-badge pending" id="rt1-badge">Waiting</span></div>
         <div class="rt-step" id="rt2"><div class="rt-icon">✂️</div><div style="flex:1"><div class="rt-label">Removing background</div><div class="rt-sub">AI-powered background removal</div></div><span class="rt-badge pending" id="rt2-badge">Waiting</span></div>
         <div class="rt-step" id="rt3"><div class="rt-icon">🖼️</div><div style="flex:1"><div class="rt-label">Formatting passport photo</div><div class="rt-sub">Applying white background &amp; sizing</div></div><span class="rt-badge pending" id="rt3-badge">Waiting</span></div>
@@ -684,37 +683,8 @@ async function doPhoto(file){
   document.getElementById('toPayBtn').disabled=true;
   clearMsg('photoStatus');
   document.getElementById('rtTracker').classList.add('show');
-  rtSet('rt0','active','Checking…');rtSet('rt1','pending','Waiting');rtSet('rt2','pending','Waiting');rtSet('rt3','pending','Waiting');rtSet('rt4','pending','Waiting');
+  rtSet('rt1','active','Uploading…');rtSet('rt2','pending','Waiting');rtSet('rt3','pending','Waiting');rtSet('rt4','pending','Waiting');
   try{
-    // ── Step 0: Claude AI photo validation ──
-    const valFd=new FormData();valFd.append('photo',file);
-    const valRes=await fetch('/api/validate-photo',{method:'POST',body:valFd});
-    const valData=await valRes.json();
-
-    if(!valData.approved){
-      rtSet('rt0','error','Rejected');
-      const issueMessages={
-        'glasses_detected':  '👓 Glasses detected — please remove your glasses and retake.',
-        'no_face':           '😶 No face detected — make sure your face is clearly visible.',
-        'multiple_faces':    '👥 Multiple faces — only one person should be in the photo.',
-        'eyes_closed':       '👁️ Eyes appear closed — please keep your eyes fully open.',
-        'head_tilted':       '↩️ Head is tilted — please look straight at the camera.',
-        'hat_or_headwear':   '🧢 Hat or headwear detected — please remove it.',
-        'poor_lighting':     '💡 Poor lighting — please take the photo in a well-lit area.',
-        'face_too_small':    '🔍 Face too small — please move closer to the camera.',
-        'blurry':            '📷 Photo is blurry — please retake with a steady hand.',
-        'mouth_open':        '😮 Mouth open — please close your mouth with a neutral expression.',
-      };
-      const issueList=(valData.issues||[]).map(i=>issueMessages[i]||i);
-      const msgHtml=issueList.length>0
-        ?'<strong>Photo rejected — please retake</strong><br><br>'+issueList.join('<br>')
-        :(valData.message||'Photo did not meet requirements. Please retake.');
-      setMsg('photoStatus',msgHtml,'error');
-      return;
-    }
-
-    rtSet('rt0','done','Passed ✓');
-    rtSet('rt1','active','Uploading…');
 
     // ── Steps 1-2: remove.bg ──
     const fd=new FormData();fd.append('photo',file);
