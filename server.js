@@ -5,34 +5,57 @@ var Stripe     = require('stripe');
 var axios      = require('axios');
 var FormData   = require('form-data');
 var cors       = require('cors');
-var fs         = require('fs');
-var path       = require('path');
 var crypto     = require('crypto');
+var mongoose   = require('mongoose');
 
 var app    = express();
 var stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
-// ── File type validation (OWASP) ─────────────────────────
+// ── MongoDB connection ────────────────────────────────────
+mongoose.connect(process.env.MONGODB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}).then(function() {
+  console.log('MongoDB connected');
+}).catch(function(err) {
+  console.error('MongoDB connection error:', err.message);
+});
+
+// ── Order schema ──────────────────────────────────────────
+var orderSchema = new mongoose.Schema({
+  orderRef:        { type: String, required: true, unique: true },
+  date:            { type: Date, default: Date.now },
+  name:            String,
+  email:           String,
+  phone:           String,
+  country:         String,
+  centre:          String,
+  purpose:         String,
+  govRef:          String,
+  amount:          { type: Number, default: 6.99 },
+  currency:        { type: String, default: 'GBP' },
+  status:          { type: String, default: 'completed' },
+  paymentIntentId: String,
+  emailSent:       { type: Boolean, default: false },
+  emailError:      String,
+  resentAt:        Date
+});
+
+var Order = mongoose.model('Order', orderSchema);
+
+// ── File validation ───────────────────────────────────────
 var ALLOWED_MIME = ['image/jpeg','image/png','image/jpg'];
-var ALLOWED_MAGIC = {
-  'ffd8ff': 'image/jpeg',
-  '89504e47': 'image/png'
-};
 
 function validateFileType(buffer) {
   var hex = buffer.slice(0,4).toString('hex');
-  if (hex.startsWith('ffd8ff')) return true;
-  if (hex.startsWith('89504e47')) return true;
-  return false;
+  return hex.startsWith('ffd8ff') || hex.startsWith('89504e47');
 }
 
 var upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 1 },
   fileFilter: function(req, file, cb) {
-    if (!ALLOWED_MIME.includes(file.mimetype)) {
-      return cb(new Error('Only JPEG and PNG files are allowed'), false);
-    }
+    if (!ALLOWED_MIME.includes(file.mimetype)) return cb(new Error('Only JPEG and PNG files are allowed'), false);
     cb(null, true);
   }
 });
@@ -56,73 +79,35 @@ app.use(function(req, res, next) {
   next();
 });
 
-// ── Rate limiting (no extra package needed) ───────────────
+// ── Rate limiting ─────────────────────────────────────────
 var rateLimitStore = {};
 function rateLimit(maxRequests, windowMs) {
   return function(req, res, next) {
     var ip = req.ip || req.connection.remoteAddress || 'unknown';
-    var now = Date.now();
     var key = ip + ':' + req.path;
+    var now = Date.now();
     if (!rateLimitStore[key]) rateLimitStore[key] = { count: 0, resetAt: now + windowMs };
-    if (now > rateLimitStore[key].resetAt) {
-      rateLimitStore[key] = { count: 0, resetAt: now + windowMs };
-    }
+    if (now > rateLimitStore[key].resetAt) rateLimitStore[key] = { count: 0, resetAt: now + windowMs };
     rateLimitStore[key].count++;
-    if (rateLimitStore[key].count > maxRequests) {
-      return res.status(429).json({ error: 'Too many requests. Please wait a moment and try again.' });
-    }
+    if (rateLimitStore[key].count > maxRequests) return res.status(429).json({ error: 'Too many requests. Please wait a moment and try again.' });
     next();
   };
 }
-// Clean rate limit store every 10 mins
 setInterval(function() { rateLimitStore = {}; }, 10 * 60 * 1000);
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
-
-// ── Stripe webhook (raw body needed) ─────────────────────
 app.use('/api/stripe-webhook', express.raw({ type: 'application/json' }));
-
 app.use(express.static('public'));
 
-// ── Database ─────────────────────────────────────────────
-var DB_FILE = path.join(__dirname, 'orders.json');
-
-function readOrders() {
-  try {
-    if (fs.existsSync(DB_FILE)) return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  } catch(e) {}
-  return [];
-}
-function saveOrder(order) {
-  var orders = readOrders();
-  orders.unshift(order);
-  fs.writeFileSync(DB_FILE, JSON.stringify(orders, null, 2));
-}
-function updateOrder(orderRef, updates) {
-  var orders = readOrders();
-  var idx = orders.findIndex(function(o) { return o.orderRef === orderRef; });
-  if (idx !== -1) {
-    orders[idx] = Object.assign(orders[idx], updates);
-    fs.writeFileSync(DB_FILE, JSON.stringify(orders, null, 2));
-    return orders[idx];
-  }
-  return null;
-}
-function getOrder(orderRef) {
-  return readOrders().find(function(o) { return o.orderRef === orderRef; });
-}
-
-// ── Temp photo store (in-memory, auto-delete after 30 mins)
+// ── In-memory photo store (auto-delete after 30 mins) ─────
 var photoStore = {};
 function storePhoto(token, imgBuffer) {
   photoStore[token] = { buffer: imgBuffer, createdAt: Date.now() };
-  // Auto-delete after 30 minutes
   setTimeout(function() { delete photoStore[token]; }, 30 * 60 * 1000);
 }
 function getPhoto(token) { return photoStore[token] || null; }
 function deletePhoto(token) { delete photoStore[token]; }
-// Clean expired photos every 15 mins
 setInterval(function() {
   var now = Date.now();
   Object.keys(photoStore).forEach(function(k) {
@@ -132,10 +117,7 @@ setInterval(function() {
 
 // ── Resend email ──────────────────────────────────────────
 function sendEmail(to, subject, html, attachments) {
-  var payload = {
-    from: 'Photobooth App <info@photoboothapp.co.uk>',
-    to: [to], subject: subject, html: html
-  };
+  var payload = { from: 'Photobooth App <info@photoboothapp.co.uk>', to: [to], subject: subject, html: html };
   if (attachments && attachments.length > 0) {
     payload.attachments = attachments.map(function(a) {
       return { filename: a.filename, content: a.content.toString('base64') };
@@ -154,21 +136,19 @@ function adminAuth(req, res, next) {
 }
 
 // ════════════════════════════════════════════════════════
-// ── PUBLIC API ───────────────────────────────────────────
+// PUBLIC API
 // ════════════════════════════════════════════════════════
 
-// ── Validate photo (Claude AI) ───────────────────────────
 app.post('/api/validate-photo', rateLimit(20, 60000), upload.single('photo'), function(req, res) {
   if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
-  if (!validateFileType(req.file.buffer)) return res.status(400).json({ error: 'Invalid file type. Please upload a JPEG or PNG.' });
+  if (!validateFileType(req.file.buffer)) return res.status(400).json({ error: 'Invalid file type.' });
   var base64Image = req.file.buffer.toString('base64');
   var mimeType = req.file.mimetype;
   axios.post('https://api.anthropic.com/v1/messages', {
-    model: 'claude-sonnet-4-6',
-    max_tokens: 400,
+    model: 'claude-sonnet-4-6', max_tokens: 400,
     messages: [{ role: 'user', content: [
       { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
-      { type: 'text', text: 'Analyse this photo for passport photo compliance. Reply ONLY with valid JSON, no markdown.\n{"approved":true,"issues":[],"message":"one sentence"}\nCheck: glasses_detected, no_face, multiple_faces, eyes_closed, head_tilted, hat_or_headwear, poor_lighting, face_too_small, blurry, mouth_open. Set approved false if issues found.' }
+      { type: 'text', text: 'Analyse this photo for passport compliance. Reply ONLY valid JSON no markdown.\n{"approved":true,"issues":[],"message":"one sentence"}\nCheck: glasses_detected, no_face, multiple_faces, eyes_closed, head_tilted, hat_or_headwear, poor_lighting, face_too_small, blurry, mouth_open. Set approved false if issues found.' }
     ]}]
   }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } })
   .then(function(r) {
@@ -181,7 +161,6 @@ app.post('/api/validate-photo', rateLimit(20, 60000), upload.single('photo'), fu
   });
 });
 
-// ── Remove background ────────────────────────────────────
 app.post('/api/remove-bg', rateLimit(20, 60000), upload.single('photo'), function(req, res) {
   if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
   if (!validateFileType(req.file.buffer)) return res.status(400).json({ error: 'Invalid file type.' });
@@ -192,8 +171,7 @@ app.post('/api/remove-bg', rateLimit(20, 60000), upload.single('photo'), functio
     headers: Object.assign({ 'X-Api-Key': process.env.REMOVE_BG_KEY }, fd.getHeaders()),
     responseType: 'arraybuffer'
   }).then(function(response) {
-    var base64 = Buffer.from(response.data).toString('base64');
-    res.json({ success: true, image: 'data:image/png;base64,' + base64 });
+    res.json({ success: true, image: 'data:image/png;base64,' + Buffer.from(response.data).toString('base64') });
   }).catch(function(err) {
     var msg = err.message;
     if (err.response && err.response.data) msg = Buffer.from(err.response.data).toString();
@@ -201,9 +179,8 @@ app.post('/api/remove-bg', rateLimit(20, 60000), upload.single('photo'), functio
   });
 });
 
-// ── Create payment intent ─────────────────────────────────
 app.post('/api/create-payment-intent', rateLimit(10, 60000), function(req, res) {
-  var name = req.body.name; var email = req.body.email;
+  var name = req.body.name, email = req.body.email;
   if (!name || !email || !email.includes('@')) return res.status(400).json({ error: 'Invalid details' });
   stripe.paymentIntents.create({
     amount: parseInt(process.env.PRICE_PENCE) || 699,
@@ -215,56 +192,46 @@ app.post('/api/create-payment-intent', rateLimit(10, 60000), function(req, res) 
   }).catch(function(err) { res.status(500).json({ error: err.message }); });
 });
 
-// ── Store photo temporarily before payment confirmed ──────
 app.post('/api/store-photo', rateLimit(20, 60000), function(req, res) {
   var passportImage = req.body.passportImage;
   if (!passportImage) return res.status(400).json({ error: 'No image' });
   var token = crypto.randomBytes(32).toString('hex');
-  var base64Data = passportImage.replace(/^data:image\/\w+;base64,/, '');
-  var imgBuffer  = Buffer.from(base64Data, 'base64');
+  var imgBuffer = Buffer.from(passportImage.replace(/^data:image\/\w+;base64,/, ''), 'base64');
   storePhoto(token, imgBuffer);
   res.json({ token: token });
 });
 
-// ── Confirm order (called after Stripe payment confirmed) ─
 app.post('/api/confirm-order', rateLimit(10, 60000), function(req, res) {
   var name=req.body.name, email=req.body.email, phone=req.body.phone;
   var centre=req.body.centre, purpose=req.body.purpose, govRef=req.body.govRef;
   var photoToken=req.body.photoToken, orderRef=req.body.orderRef;
   var paymentIntentId=req.body.paymentIntentId;
 
-  if (!name||!email||!phone||!centre||!purpose||!photoToken||!paymentIntentId) {
+  if (!name||!email||!phone||!centre||!purpose||!photoToken||!paymentIntentId)
     return res.status(400).json({ error: 'Missing required fields' });
-  }
 
-  // ── Verify payment with Stripe before doing anything ────
   stripe.paymentIntents.retrieve(paymentIntentId, function(err, intent) {
-    if (err || !intent || intent.status !== 'succeeded') {
-      console.error('Payment verification failed:', err ? err.message : 'Status: ' + (intent && intent.status));
+    if (err || !intent || intent.status !== 'succeeded')
       return res.status(402).json({ error: 'Payment not verified. Please contact support.' });
-    }
-
-    // Verify amount matches
-    if (intent.amount !== (parseInt(process.env.PRICE_PENCE) || 699)) {
+    if (intent.amount !== (parseInt(process.env.PRICE_PENCE) || 699))
       return res.status(402).json({ error: 'Payment amount mismatch.' });
-    }
 
-    // Get photo from temp store
     var photoData = getPhoto(photoToken);
     if (!photoData) return res.status(400).json({ error: 'Photo expired. Please start again.' });
     var imgBuffer = photoData.buffer;
+    var firstName = name.split(' ')[0];
+    var cleanPurpose = purpose.replace(/\s*[—–-]\s*[\d×xX\/\s\(\)inchmm\.]+$/i, '').trim();
 
-    // Save order
-    saveOrder({
-      orderRef: orderRef, date: new Date().toISOString(),
+    // Save to MongoDB
+    var order = new Order({
+      orderRef: orderRef, date: new Date(),
       name: name, email: email, phone: phone,
       centre: centre, purpose: purpose, govRef: govRef || '',
       amount: 6.99, currency: 'GBP', status: 'completed',
       paymentIntentId: paymentIntentId, emailSent: false
     });
+    order.save().catch(function(e) { console.error('DB save error:', e.message); });
 
-    var firstName = name.split(' ')[0];
-    var cleanPurpose = purpose.replace(/\s*[—–-]\s*[\d×xX\/\s\(\)inchmm\.]+$/i, '').trim();
     var customerHtml =
       '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">' +
       '<div style="background:#0d1b2e;padding:28px 32px;"><h1 style="color:white;font-size:22px;margin:0;">Photobooth App</h1>' +
@@ -290,7 +257,7 @@ app.post('/api/confirm-order', rateLimit(10, 60000), function(req, res) {
       '<div style="background:#0d1b2e;padding:20px 24px;"><h2 style="color:white;margin:0;">New Order — '+orderRef+'</h2></div>' +
       '<div style="padding:24px;background:#f8f9fb;font-size:14px;">' +
       '<p><strong>Customer:</strong> '+name+'</p><p><strong>Email:</strong> '+email+'</p>' +
-      '<p><strong>Phone:</strong> '+phone+'</p><p><strong>Purpose:</strong> '+purpose+'</p>' +
+      '<p><strong>Phone:</strong> '+phone+'</p><p><strong>Purpose:</strong> '+cleanPurpose+'</p>' +
       '<p><strong>Centre:</strong> '+centre+'</p>' +
       (govRef?'<p><strong>Gov Ref:</strong> '+govRef+'</p>':'') +
       '<p><strong>Stripe PI:</strong> '+paymentIntentId+'</p>' +
@@ -303,105 +270,128 @@ app.post('/api/confirm-order', rateLimit(10, 60000), function(req, res) {
     .then(function() {
       return sendEmail(process.env.ADMIN_EMAIL, 'New Order '+orderRef+' - '+name, adminHtml, attachment);
     }).then(function() {
-      deletePhoto(photoToken); // Delete photo immediately after emailing
-      updateOrder(orderRef, { emailSent: true });
+      deletePhoto(photoToken);
+      Order.findOneAndUpdate({ orderRef: orderRef }, { emailSent: true }).catch(function(){});
       res.json({ success: true, orderRef: orderRef });
     }).catch(function(err) {
       console.error('Email error:', err.response ? JSON.stringify(err.response.data) : err.message);
-      updateOrder(orderRef, { emailSent: false, emailError: err.message });
+      Order.findOneAndUpdate({ orderRef: orderRef }, { emailSent: false, emailError: err.message }).catch(function(){});
       res.status(500).json({ error: 'Payment received but email failed. Order ref: '+orderRef+'. Contact support.' });
     });
   });
 });
 
-// ── Stripe webhook for async payment confirmation ─────────
 app.post('/api/stripe-webhook', function(req, res) {
   var sig = req.headers['stripe-signature'];
   var event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET || '');
-  } catch(err) {
-    console.error('Webhook error:', err.message);
-    return res.status(400).send('Webhook Error: ' + err.message);
-  }
-  if (event.type === 'payment_intent.succeeded') {
-    var pi = event.data.object;
-    console.log('Payment confirmed via webhook:', pi.id);
-  }
+  try { event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET || ''); }
+  catch(err) { return res.status(400).send('Webhook Error: ' + err.message); }
+  if (event.type === 'payment_intent.succeeded') console.log('Payment confirmed via webhook:', event.data.object.id);
   res.json({ received: true });
 });
 
 // ════════════════════════════════════════════════════════
-// ── ADMIN API ────────────────────────────────────────────
+// ADMIN API
 // ════════════════════════════════════════════════════════
 
 app.post('/api/admin/login', rateLimit(5, 60000), function(req, res) {
-  var password = req.body.password;
-  if (!password || password !== process.env.ADMIN_PASSWORD) {
+  if (!req.body.password || req.body.password !== process.env.ADMIN_PASSWORD)
     return res.status(401).json({ error: 'Invalid password' });
-  }
   res.json({ success: true, token: process.env.ADMIN_TOKEN });
 });
 
 app.get('/api/admin/orders', adminAuth, function(req, res) {
-  var orders   = readOrders();
   var search   = (req.query.search||'').toLowerCase();
   var status   = req.query.status||'';
   var dateFrom = req.query.dateFrom||'';
   var dateTo   = req.query.dateTo||'';
-  if (search) orders = orders.filter(function(o){
-    return (o.name||'').toLowerCase().includes(search)||(o.email||'').toLowerCase().includes(search)||
-           (o.orderRef||'').toLowerCase().includes(search)||(o.govRef||'').toLowerCase().includes(search);
-  });
-  if (status)   orders = orders.filter(function(o){return o.status===status;});
-  if (dateFrom) orders = orders.filter(function(o){return new Date(o.date)>=new Date(dateFrom);});
-  if (dateTo)   orders = orders.filter(function(o){return new Date(o.date)<=new Date(dateTo+'T23:59:59');});
-  var all=readOrders(), today=new Date().toISOString().split('T')[0], mo=new Date().toISOString().slice(0,7);
-  var tod=all.filter(function(o){return o.date&&o.date.startsWith(today);});
-  var mon=all.filter(function(o){return o.date&&o.date.startsWith(mo);});
-  res.json({ orders:orders, stats:{
-    total:all.length, totalRevenue:all.reduce(function(s,o){return s+(o.amount||0);},0),
-    todayCount:tod.length, todayRevenue:tod.reduce(function(s,o){return s+(o.amount||0);},0),
-    monthCount:mon.length, monthRevenue:mon.reduce(function(s,o){return s+(o.amount||0);},0)
-  }});
+
+  var query = {};
+  if (status) query.status = status;
+  if (dateFrom || dateTo) {
+    query.date = {};
+    if (dateFrom) query.date.$gte = new Date(dateFrom);
+    if (dateTo)   query.date.$lte = new Date(dateTo + 'T23:59:59');
+  }
+
+  Order.find(query).sort({ date: -1 }).lean().then(function(orders) {
+    if (search) {
+      orders = orders.filter(function(o) {
+        return (o.name||'').toLowerCase().includes(search) ||
+               (o.email||'').toLowerCase().includes(search) ||
+               (o.orderRef||'').toLowerCase().includes(search) ||
+               (o.govRef||'').toLowerCase().includes(search);
+      });
+    }
+
+    var now   = new Date();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    Order.find({}).lean().then(function(all) {
+      var todayOrders = all.filter(function(o){ return new Date(o.date) >= today; });
+      var monthOrders = all.filter(function(o){ return new Date(o.date) >= monthStart; });
+      res.json({
+        orders: orders,
+        stats: {
+          total:        all.length,
+          totalRevenue: all.reduce(function(s,o){ return s+(o.amount||0); }, 0),
+          todayCount:   todayOrders.length,
+          todayRevenue: todayOrders.reduce(function(s,o){ return s+(o.amount||0); }, 0),
+          monthCount:   monthOrders.length,
+          monthRevenue: monthOrders.reduce(function(s,o){ return s+(o.amount||0); }, 0),
+        }
+      });
+    });
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
 });
 
 app.get('/api/admin/export', adminAuth, function(req, res) {
-  var orders=readOrders(), dateFrom=req.query.dateFrom||'', dateTo=req.query.dateTo||'';
-  if (dateFrom) orders=orders.filter(function(o){return new Date(o.date)>=new Date(dateFrom);});
-  if (dateTo)   orders=orders.filter(function(o){return new Date(o.date)<=new Date(dateTo+'T23:59:59');});
-  var headers=['Order Ref','Date','Time','Customer Name','Email','Phone','Application Centre','Photo Purpose','Gov Reference','Amount (GBP)','Status','Email Sent','Payment ID'];
-  var rows=orders.map(function(o){
-    var d=o.date?new Date(o.date):new Date();
-    return [o.orderRef,d.toLocaleDateString('en-GB'),d.toLocaleTimeString('en-GB'),
-      o.name,o.email,o.phone,o.centre,o.purpose,o.govRef||'',
-      o.amount||6.99,o.status,o.emailSent?'Yes':'No',o.paymentIntentId||''
-    ].map(function(v){return '"'+(v||'').toString().replace(/"/g,'""')+'"';}).join(',');
-  });
-  res.setHeader('Content-Type','text/csv');
-  res.setHeader('Content-Disposition','attachment; filename="photobooth_orders_'+new Date().toISOString().split('T')[0]+'.csv"');
-  res.send([headers.join(',')].concat(rows).join('\n'));
+  var query = {};
+  if (req.query.dateFrom || req.query.dateTo) {
+    query.date = {};
+    if (req.query.dateFrom) query.date.$gte = new Date(req.query.dateFrom);
+    if (req.query.dateTo)   query.date.$lte = new Date(req.query.dateTo + 'T23:59:59');
+  }
+  Order.find(query).sort({ date: -1 }).lean().then(function(orders) {
+    var headers = ['Order Ref','Date','Time','Customer Name','Email','Phone','Application Centre','Photo Purpose','Gov Reference','Amount (GBP)','Status','Email Sent','Payment ID'];
+    var rows = orders.map(function(o) {
+      var d = o.date ? new Date(o.date) : new Date();
+      return [o.orderRef, d.toLocaleDateString('en-GB'), d.toLocaleTimeString('en-GB'),
+        o.name, o.email, o.phone, o.centre, o.purpose, o.govRef||'',
+        o.amount||6.99, o.status, o.emailSent?'Yes':'No', o.paymentIntentId||''
+      ].map(function(v){ return '"'+(v||'').toString().replace(/"/g,'""')+'"'; }).join(',');
+    });
+    res.setHeader('Content-Type','text/csv');
+    res.setHeader('Content-Disposition','attachment; filename="photobooth_orders_'+new Date().toISOString().split('T')[0]+'.csv"');
+    res.send([headers.join(',')].concat(rows).join('\n'));
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
 });
 
 app.post('/api/admin/resend-email', adminAuth, function(req, res) {
-  var order=getOrder(req.body.orderRef);
-  if (!order) return res.status(404).json({error:'Order not found'});
-  var html='<div style="font-family:Arial,sans-serif;padding:24px;"><h2>Your Passport Photo — Order '+order.orderRef+'</h2><p>This is a resent confirmation. Contact info@photoboothapp.co.uk for your photo file.</p></div>';
-  sendEmail(order.email,'[Resent] Passport Photo Order '+order.orderRef,html,[])
-  .then(function(){updateOrder(order.orderRef,{resentAt:new Date().toISOString()});res.json({success:true});})
-  .catch(function(err){res.status(500).json({error:err.message});});
+  Order.findOne({ orderRef: req.body.orderRef }).lean().then(function(order) {
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    var html = '<div style="font-family:Arial,sans-serif;padding:24px;"><h2>Your Passport Photo — Order '+order.orderRef+'</h2>' +
+      '<p>This is a resent confirmation. Contact info@photoboothapp.co.uk for your photo file.</p>' +
+      '<p><strong>Purpose:</strong> '+order.purpose+'</p><p><strong>Centre:</strong> '+order.centre+'</p></div>';
+    sendEmail(order.email, '[Resent] Passport Photo Order '+order.orderRef, html, [])
+    .then(function() {
+      Order.findOneAndUpdate({ orderRef: order.orderRef }, { resentAt: new Date() }).catch(function(){});
+      res.json({ success: true });
+    }).catch(function(err) { res.status(500).json({ error: err.message }); });
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
 });
 
 app.delete('/api/admin/orders/:ref', adminAuth, function(req, res) {
-  var orders=readOrders().filter(function(o){return o.orderRef!==req.params.ref;});
-  fs.writeFileSync(DB_FILE,JSON.stringify(orders,null,2));
-  res.json({success:true});
+  Order.findOneAndDelete({ orderRef: req.params.ref })
+  .then(function() { res.json({ success: true }); })
+  .catch(function(err) { res.status(500).json({ error: err.message }); });
 });
 
-app.get('/api/health', function(req, res) { res.json({ status: 'ok', time: new Date().toISOString() }); });
+app.get('/api/health', function(req, res) { res.json({ status: 'ok', db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' }); });
 
 var PORT = process.env.PORT || 3000;
 app.listen(PORT, function() {
-  console.log('Photobooth App running at http://localhost:' + PORT);
+  console.log('Photobooth App running on port ' + PORT);
   console.log('Admin portal: http://localhost:' + PORT + '/admin.html');
 });
