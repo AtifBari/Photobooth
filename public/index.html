@@ -352,13 +352,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);
       <input type="file" id="photoFile" accept="image/*" style="display:none;"/>
       <input type="file" id="photoFileCamera" accept="image/*" capture="environment" style="display:none;"/>
 
-      <div class="upload-area" id="uploadArea" onclick="document.getElementById('photoFile').click()">
+      <div class="upload-area" id="uploadArea">
         <div class="upload-ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
         <h3>Take or choose your photo</h3>
         <p>JPEG or PNG · Face clearly visible · Max 10MB</p>
         <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap;">
-          <div class="upload-cta" onclick="event.stopPropagation();document.getElementById('photoFile').click()" style="cursor:pointer;">📁 Choose from Gallery</div>
-          <div class="upload-cta" onclick="event.stopPropagation();document.getElementById('photoFileCamera').click()" style="cursor:pointer;background:var(--navy3);">📷 Take Photo</div>
+          <label for="photoFile" class="upload-cta" style="cursor:pointer;display:inline-block;">📁 Choose from Gallery</label>
+          <label for="photoFileCamera" class="upload-cta" style="cursor:pointer;display:inline-block;background:var(--navy3);">📷 Take Photo</label>
         </div>
       </div>
       <div class="status" id="photoStatus"></div>
