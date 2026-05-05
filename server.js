@@ -133,7 +133,7 @@ setInterval(function() {
 // ── Resend email ──────────────────────────────────────────
 function sendEmail(to, subject, html, attachments) {
   var payload = {
-    from: 'Photobooth App <onboarding@resend.dev>',
+    from: 'Photobooth App <info@photoboothapp.co.uk>',
     to: [to], subject: subject, html: html
   };
   if (attachments && attachments.length > 0) {
