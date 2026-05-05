@@ -1,7 +1,6 @@
 require('dotenv').config();
 var express    = require('express');
 var multer     = require('multer');
-var nodemailer = require('nodemailer');
 var Stripe     = require('stripe');
 var axios      = require('axios');
 var FormData   = require('form-data');
@@ -44,14 +43,26 @@ function updateOrder(orderRef, updates) {
   }
 }
 
-// ── Email transporter ────────────────────────────────────
-var transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
+// ── Resend email helper ──────────────────────────────────
+function sendEmail(to, subject, html, attachments) {
+  var payload = {
+    from: 'Photobooth App <onboarding@resend.dev>',
+    to: [to],
+    subject: subject,
+    html: html
+  };
+  if (attachments && attachments.length > 0) {
+    payload.attachments = attachments.map(function(a) {
+      return { filename: a.filename, content: a.content.toString('base64') };
+    });
   }
-});
+  return axios.post('https://api.resend.com/emails', payload, {
+    headers: {
+      'Authorization': 'Bearer ' + process.env.RESEND_API_KEY,
+      'Content-Type': 'application/json'
+    }
+  });
+}
 
 // ── Admin auth middleware ─────────────────────────────────
 function adminAuth(req, res, next) {
@@ -68,7 +79,7 @@ app.post('/api/validate-photo', upload.single('photo'), function(req, res) {
   var base64Image = req.file.buffer.toString('base64');
   var mimeType    = req.file.mimetype;
   axios.post('https://api.anthropic.com/v1/messages', {
-    model: 'claude-opus-4-6',
+    model: 'claude-sonnet-4-6',
     max_tokens: 400,
     messages: [{
       role: 'user',
@@ -139,21 +150,11 @@ app.post('/api/confirm-order', function(req, res) {
   var imgBuffer  = Buffer.from(base64Data, 'base64');
   var firstName  = name.split(' ')[0];
 
-  // Save to database
   saveOrder({
-    orderRef:  orderRef,
-    date:      new Date().toISOString(),
-    name:      name,
-    email:     email,
-    phone:     phone,
-    country:   country,
-    centre:    centre,
-    purpose:   purpose,
-    govRef:    govRef || '',
-    amount:    6.99,
-    currency:  'GBP',
-    status:    'completed',
-    emailSent: false
+    orderRef: orderRef, date: new Date().toISOString(),
+    name: name, email: email, phone: phone, country: country,
+    centre: centre, purpose: purpose, govRef: govRef || '',
+    amount: 6.99, currency: 'GBP', status: 'completed', emailSent: false
   });
 
   var customerHtml =
@@ -183,140 +184,111 @@ app.post('/api/confirm-order', function(req, res) {
     '<p style="font-size:16px;font-weight:bold;border-top:1px solid #ddd;padding-top:12px;margin-top:12px;">Amount: £6.99</p>' +
     '</div></div>';
 
-  var attachment = { filename: 'passport_photo_'+orderRef+'.jpg', content: imgBuffer, contentType: 'image/jpeg' };
+  var attachment = [{ filename: 'passport_photo_'+orderRef+'.jpg', content: imgBuffer }];
 
-  transporter.sendMail({
-    from: '"'+process.env.BUSINESS_NAME+'" <'+process.env.BUSINESS_EMAIL+'>',
-    to: email, subject: 'Your Passport Photo - Order '+orderRef,
-    html: customerHtml, attachments: [attachment]
-  }).then(function() {
-    return transporter.sendMail({
-      from: '"'+process.env.BUSINESS_NAME+'" <'+process.env.BUSINESS_EMAIL+'>',
-      to: process.env.ADMIN_EMAIL, subject: 'New Order '+orderRef+' - '+name,
-      html: adminHtml, attachments: [attachment]
-    });
+  sendEmail(email, 'Your Passport Photo - Order '+orderRef, customerHtml, attachment)
+  .then(function() {
+    return sendEmail(process.env.ADMIN_EMAIL, 'New Order '+orderRef+' - '+name, adminHtml, attachment);
   }).then(function() {
     updateOrder(orderRef, { emailSent: true });
     res.json({ success: true, orderRef: orderRef });
   }).catch(function(err) {
-    console.error('Email error:', err.message);
+    console.error('Email error:', err.response ? JSON.stringify(err.response.data) : err.message);
     updateOrder(orderRef, { emailSent: false, emailError: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Email failed: ' + (err.response ? JSON.stringify(err.response.data) : err.message) });
   });
 });
 
-// ════════════════════════════════════════════════════════
 // ── ADMIN API ────────────────────────────────────────────
-// ════════════════════════════════════════════════════════
-
-// Login
 app.post('/api/admin/login', function(req, res) {
-  var password = req.body.password;
-  if (password === process.env.ADMIN_PASSWORD) {
+  if (req.body.password === process.env.ADMIN_PASSWORD) {
     res.json({ success: true, token: process.env.ADMIN_TOKEN });
   } else {
     res.status(401).json({ error: 'Invalid password' });
   }
 });
 
-// Get all orders with filters
 app.get('/api/admin/orders', adminAuth, function(req, res) {
   var orders = readOrders();
   var search   = (req.query.search || '').toLowerCase();
   var status   = req.query.status || '';
   var dateFrom = req.query.dateFrom || '';
   var dateTo   = req.query.dateTo || '';
-  var country  = req.query.country || '';
 
-  if (search) {
-    orders = orders.filter(function(o) {
-      return (o.name||'').toLowerCase().includes(search) ||
-             (o.email||'').toLowerCase().includes(search) ||
-             (o.orderRef||'').toLowerCase().includes(search) ||
-             (o.govRef||'').toLowerCase().includes(search);
-    });
-  }
+  if (search) orders = orders.filter(function(o) {
+    return (o.name||'').toLowerCase().includes(search) ||
+           (o.email||'').toLowerCase().includes(search) ||
+           (o.orderRef||'').toLowerCase().includes(search) ||
+           (o.govRef||'').toLowerCase().includes(search);
+  });
   if (status)   orders = orders.filter(function(o) { return o.status === status; });
-  if (country)  orders = orders.filter(function(o) { return (o.country||'').toLowerCase().includes(country.toLowerCase()); });
   if (dateFrom) orders = orders.filter(function(o) { return new Date(o.date) >= new Date(dateFrom); });
   if (dateTo)   orders = orders.filter(function(o) { return new Date(o.date) <= new Date(dateTo + 'T23:59:59'); });
 
-  // Stats
-  var allOrders = readOrders();
-  var today = new Date().toISOString().split('T')[0];
+  var allOrders   = readOrders();
+  var today       = new Date().toISOString().split('T')[0];
+  var thisMonth   = new Date().toISOString().slice(0, 7);
   var todayOrders = allOrders.filter(function(o) { return o.date && o.date.startsWith(today); });
-  var thisMonth = new Date().toISOString().slice(0, 7);
   var monthOrders = allOrders.filter(function(o) { return o.date && o.date.startsWith(thisMonth); });
 
   res.json({
     orders: orders,
     stats: {
       total:        allOrders.length,
-      totalRevenue: allOrders.reduce(function(s,o){ return s + (o.amount||0); }, 0),
+      totalRevenue: allOrders.reduce(function(s,o){ return s+(o.amount||0); }, 0),
       todayCount:   todayOrders.length,
-      todayRevenue: todayOrders.reduce(function(s,o){ return s + (o.amount||0); }, 0),
+      todayRevenue: todayOrders.reduce(function(s,o){ return s+(o.amount||0); }, 0),
       monthCount:   monthOrders.length,
-      monthRevenue: monthOrders.reduce(function(s,o){ return s + (o.amount||0); }, 0),
+      monthRevenue: monthOrders.reduce(function(s,o){ return s+(o.amount||0); }, 0),
     }
   });
 });
 
-// Export CSV
 app.get('/api/admin/export', adminAuth, function(req, res) {
-  var orders = readOrders();
+  var orders   = readOrders();
   var dateFrom = req.query.dateFrom || '';
   var dateTo   = req.query.dateTo || '';
   if (dateFrom) orders = orders.filter(function(o) { return new Date(o.date) >= new Date(dateFrom); });
-  if (dateTo)   orders = orders.filter(function(o) { return new Date(o.date) <= new Date(dateTo + 'T23:59:59'); });
+  if (dateTo)   orders = orders.filter(function(o) { return new Date(o.date) <= new Date(dateTo+'T23:59:59'); });
 
   var headers = ['Order Ref','Date','Time','Customer Name','Email','Phone','Country','Application Centre','Photo Purpose','Gov Reference','Amount (GBP)','Currency','Status','Email Sent'];
   var rows = orders.map(function(o) {
     var d = o.date ? new Date(o.date) : new Date();
-    return [
-      o.orderRef, d.toLocaleDateString('en-GB'), d.toLocaleTimeString('en-GB'),
+    return [o.orderRef, d.toLocaleDateString('en-GB'), d.toLocaleTimeString('en-GB'),
       o.name, o.email, o.phone, o.country, o.centre, o.purpose,
-      o.govRef||'', o.amount||6.99, o.currency||'GBP',
-      o.status, o.emailSent ? 'Yes' : 'No'
-    ].map(function(v) { return '"'+(v||'').toString().replace(/"/g,'""')+'"'; }).join(',');
+      o.govRef||'', o.amount||6.99, o.currency||'GBP', o.status, o.emailSent?'Yes':'No'
+    ].map(function(v){ return '"'+(v||'').toString().replace(/"/g,'""')+'"'; }).join(',');
   });
 
   var csv = [headers.join(',')].concat(rows).join('\n');
-  var filename = 'photobooth_orders_' + new Date().toISOString().split('T')[0] + '.csv';
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="'+filename+'"');
+  res.setHeader('Content-Type','text/csv');
+  res.setHeader('Content-Disposition','attachment; filename="photobooth_orders_'+new Date().toISOString().split('T')[0]+'.csv"');
   res.send(csv);
 });
 
-// Resend email
 app.post('/api/admin/resend-email', adminAuth, function(req, res) {
-  var orderRef = req.body.orderRef;
   var orders = readOrders();
-  var order = orders.find(function(o) { return o.orderRef === orderRef; });
+  var order  = orders.find(function(o) { return o.orderRef === req.body.orderRef; });
   if (!order) return res.status(404).json({ error: 'Order not found' });
 
   var html = '<div style="font-family:Arial,sans-serif;padding:24px;">' +
-    '<h2>Your Passport Photo — Order '+orderRef+'</h2>' +
-    '<p>This is a resent copy of your passport photo order confirmation.</p>' +
+    '<h2>Your Passport Photo — Order '+order.orderRef+'</h2>' +
+    '<p>This is a resent copy of your order confirmation.</p>' +
     '<p><strong>Purpose:</strong> '+order.purpose+'</p>' +
     '<p><strong>Centre:</strong> '+order.centre+'</p>' +
-    '<p>Please contact us at info@sabtech.co.uk if you need assistance.</p></div>';
+    '<p>Contact us at info@sabtech.co.uk if you need help.</p></div>';
 
-  transporter.sendMail({
-    from: '"'+process.env.BUSINESS_NAME+'" <'+process.env.BUSINESS_EMAIL+'>',
-    to: order.email,
-    subject: '[Resent] Your Passport Photo - Order '+orderRef,
-    html: html
-  }).then(function() {
-    updateOrder(orderRef, { emailSent: true, resentAt: new Date().toISOString() });
+  sendEmail(order.email, '[Resent] Your Passport Photo - Order '+order.orderRef, html, [])
+  .then(function() {
+    updateOrder(order.orderRef, { emailSent: true, resentAt: new Date().toISOString() });
     res.json({ success: true });
   }).catch(function(err) {
     res.status(500).json({ error: err.message });
   });
 });
 
-// Delete order
 app.delete('/api/admin/orders/:ref', adminAuth, function(req, res) {
-  var orders = readOrders();
+  var orders   = readOrders();
   var filtered = orders.filter(function(o) { return o.orderRef !== req.params.ref; });
   fs.writeFileSync(DB_FILE, JSON.stringify(filtered, null, 2));
   res.json({ success: true });
