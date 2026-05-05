@@ -264,6 +264,7 @@ app.post('/api/confirm-order', rateLimit(10, 60000), function(req, res) {
     });
 
     var firstName = name.split(' ')[0];
+    var cleanPurpose = purpose.replace(/\s*[—–-]\s*[\d×xX\/\s\(\)inchmm\.]+$/i, '').trim();
     var customerHtml =
       '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">' +
       '<div style="background:#0d1b2e;padding:28px 32px;"><h1 style="color:white;font-size:22px;margin:0;">Photobooth App</h1>' +
@@ -272,16 +273,16 @@ app.post('/api/confirm-order', rateLimit(10, 60000), function(req, res) {
       '<p style="color:#5a6275;">Thank you for your order. Your passport photo is attached.</p>' +
       '<div style="background:#f8f9fb;padding:20px;border-radius:10px;margin:20px 0;font-size:13px;">' +
       '<p><strong>Order Ref:</strong> '+orderRef+'</p>' +
-      '<p><strong>Photo Purpose:</strong> '+purpose+'</p>' +
+      '<p><strong>Photo Purpose:</strong> '+cleanPurpose+'</p>' +
       '<p><strong>Application Centre:</strong> '+centre+'</p>' +
       (govRef?'<p><strong>Your Reference:</strong> '+govRef+'</p>':'') +
       '<p><strong>Total Paid:</strong> £6.99</p></div>' +
       '<p style="background:#f0fdf4;color:#166534;padding:14px;border-radius:8px;">Your photo is attached — formatted to the correct size for your application.</p>' +
       '<div style="margin-top:24px;padding:14px;background:#f8f9fb;border-radius:8px;font-size:12px;color:#8a9bb0;">' +
-      '<p><strong>Data & Privacy:</strong> Your photo and personal data are processed under UK GDPR. Photos are deleted automatically after delivery. For data requests or deletion, email info@sabtech.co.uk.</p>' +
+      '<p><strong>Data & Privacy:</strong> Your photo and personal data are processed under UK GDPR. Photos are deleted automatically after delivery. For data requests or deletion, email info@photoboothapp.co.uk.</p>' +
       '<p style="margin-top:8px;"><strong>Refund Policy:</strong> If your photo is rejected by the application centre, contact us within 7 days for a replacement or full refund.</p>' +
       '</div>' +
-      '<p style="color:#8a9bb0;font-size:12px;margin-top:20px;">Questions? Contact us at info@sabtech.co.uk · Sabtech Limited</p>' +
+      '<p style="color:#8a9bb0;font-size:12px;margin-top:20px;">Questions? Contact us at info@photoboothapp.co.uk · Photobooth App</p>' +
       '</div></div>';
 
     var adminHtml =
@@ -385,7 +386,7 @@ app.get('/api/admin/export', adminAuth, function(req, res) {
 app.post('/api/admin/resend-email', adminAuth, function(req, res) {
   var order=getOrder(req.body.orderRef);
   if (!order) return res.status(404).json({error:'Order not found'});
-  var html='<div style="font-family:Arial,sans-serif;padding:24px;"><h2>Your Passport Photo — Order '+order.orderRef+'</h2><p>This is a resent confirmation. Contact info@sabtech.co.uk for your photo file.</p></div>';
+  var html='<div style="font-family:Arial,sans-serif;padding:24px;"><h2>Your Passport Photo — Order '+order.orderRef+'</h2><p>This is a resent confirmation. Contact info@photoboothapp.co.uk for your photo file.</p></div>';
   sendEmail(order.email,'[Resent] Passport Photo Order '+order.orderRef,html,[])
   .then(function(){updateOrder(order.orderRef,{resentAt:new Date().toISOString()});res.json({success:true});})
   .catch(function(err){res.status(500).json({error:err.message});});
