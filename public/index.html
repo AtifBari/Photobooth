@@ -78,7 +78,33 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);
 .upload-area h3{font-family:'DM Serif Display',serif;font-size:18px;color:var(--navy);font-weight:400;margin-bottom:6px;}
 .upload-area p{font-size:13px;color:var(--silver);font-weight:300;}
 .upload-cta{display:inline-block;margin-top:18px;background:var(--navy);color:var(--white);font-size:13px;font-weight:500;padding:10px 28px;border-radius:99px;pointer-events:auto;cursor:pointer;}
-.realtime-tracker{margin:1.5rem 0;display:none;}
+/* ── Crop editor ─────────────────────────────────────── */
+.crop-editor{display:none;margin-bottom:16px;}
+.crop-editor.show{display:block;}
+.crop-viewport{
+  width:100%;max-width:300px;height:300px;
+  border-radius:var(--r);overflow:hidden;
+  position:relative;background:#1a1a1a;margin:0 auto 12px;
+  cursor:grab;touch-action:none;
+  border:2px solid var(--navy);
+}
+.crop-viewport.dragging{cursor:grabbing;}
+.crop-viewport canvas{position:absolute;top:0;left:0;width:100%;height:100%;}
+.crop-guide{
+  position:absolute;top:8%;left:18%;width:64%;height:72%;
+  border:2px dashed rgba(255,255,255,0.35);
+  border-radius:50%;pointer-events:none;
+}
+.crop-hint{font-size:11px;color:var(--silver);text-align:center;margin-bottom:10px;}
+.crop-controls{display:flex;align-items:center;gap:10px;margin:0 auto 8px;max-width:300px;}
+.crop-controls label{font-size:11px;color:var(--silver);white-space:nowrap;}
+.crop-slider{flex:1;accent-color:var(--navy);cursor:pointer;height:4px;}
+.crop-rotate-btns{display:flex;gap:8px;justify-content:center;margin-bottom:10px;}
+.crop-btn{padding:6px 16px;border-radius:var(--r-sm);border:1px solid var(--platinum2);background:var(--white);font-size:12px;font-weight:500;color:var(--navy);cursor:pointer;}
+.crop-btn:hover{background:var(--navy);color:var(--white);}
+.crop-confirm{display:block;width:100%;max-width:300px;margin:0 auto;padding:11px;background:var(--navy);color:var(--white);border:none;border-radius:99px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;}
+.crop-confirm:hover{opacity:0.85;}
+/* ── Realtime tracker ────────────────────────────────── */
 .realtime-tracker.show{display:block;}
 .rt-title{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.8px;color:var(--silver);margin-bottom:12px;}
 .rt-step{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--r-sm);background:var(--cream);border:1px solid var(--platinum3);margin-bottom:6px;transition:all 0.3s;}
@@ -362,6 +388,25 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);
         </div>
       </div>
       <div class="status" id="photoStatus"></div>
+
+      <!-- Crop Editor -->
+      <div class="crop-editor" id="cropEditor">
+        <p class="crop-hint">✋ Drag to reposition · Pinch or scroll to zoom · Centre your face in the oval</p>
+        <div class="crop-viewport" id="cropViewport">
+          <canvas id="cropCanvas"></canvas>
+          <div class="crop-guide"></div>
+        </div>
+        <div class="crop-controls">
+          <label>🔍 Zoom</label>
+          <input type="range" class="crop-slider" id="zoomSlider" min="50" max="300" value="100"/>
+        </div>
+        <div class="crop-rotate-btns">
+          <button class="crop-btn" onclick="rotateCrop(-90)">↺ Rotate Left</button>
+          <button class="crop-btn" onclick="rotateCrop(90)">↻ Rotate Right</button>
+        </div>
+        <button class="crop-confirm" onclick="confirmCrop()">✓ Use This Photo →</button>
+      </div>
+
       <div class="realtime-tracker" id="rtTracker">
         <div class="rt-title">Processing your photo</div>
         <div class="rt-step" id="rt1"><div class="rt-icon">📤</div><div style="flex:1"><div class="rt-label">Uploading photo</div><div class="rt-sub">Sending to processing server</div></div><span class="rt-badge pending" id="rt1-badge">Waiting</span></div>
@@ -719,7 +764,147 @@ document.getElementById('uploadArea').addEventListener('drop',e=>{e.preventDefau
 function setMsg(id,msg,type,spin){const el=document.getElementById(id);el.innerHTML=(spin?'<span class="spinner"></span>':'')+msg;el.className='status show '+type;}
 function clearMsg(id){document.getElementById(id).className='status';}
 
-async function doPhoto(file){
+// ── Crop Editor ──────────────────────────────────────────
+var cropState = {
+  img: null, x: 0, y: 0, zoom: 1, rotation: 0,
+  dragging: false, lastX: 0, lastY: 0,
+  vpSize: 300
+};
+
+function initCropEditor(file) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onload = function() {
+      cropState.img = img;
+      cropState.rotation = 0;
+      cropState.zoom = 1;
+      // Centre image
+      var vp = cropState.vpSize;
+      var scale = Math.max(vp / img.width, vp / img.height);
+      cropState.zoom = scale;
+      cropState.x = (vp - img.width * scale) / 2;
+      cropState.y = (vp - img.height * scale) / 2;
+      document.getElementById('zoomSlider').value = Math.round(scale * 100);
+      drawCrop();
+      document.getElementById('uploadArea').style.display = 'none';
+      document.getElementById('cropEditor').classList.add('show');
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function drawCrop() {
+  var c = document.getElementById('cropCanvas');
+  var vp = cropState.vpSize;
+  c.width = vp; c.height = vp;
+  var ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, vp, vp);
+  ctx.save();
+  ctx.translate(vp/2, vp/2);
+  ctx.rotate(cropState.rotation * Math.PI / 180);
+  ctx.translate(-vp/2, -vp/2);
+  var img = cropState.img;
+  var w = img.width * cropState.zoom;
+  var h = img.height * cropState.zoom;
+  ctx.drawImage(img, cropState.x, cropState.y, w, h);
+  ctx.restore();
+}
+
+function rotateCrop(deg) {
+  cropState.rotation = (cropState.rotation + deg + 360) % 360;
+  drawCrop();
+}
+
+document.getElementById('zoomSlider').addEventListener('input', function() {
+  cropState.zoom = parseFloat(this.value) / 100;
+  drawCrop();
+});
+
+// Mouse drag
+var vp = document.getElementById('cropViewport');
+vp.addEventListener('mousedown', function(e) {
+  cropState.dragging = true;
+  cropState.lastX = e.clientX;
+  cropState.lastY = e.clientY;
+  vp.classList.add('dragging');
+});
+window.addEventListener('mousemove', function(e) {
+  if (!cropState.dragging) return;
+  cropState.x += e.clientX - cropState.lastX;
+  cropState.y += e.clientY - cropState.lastY;
+  cropState.lastX = e.clientX;
+  cropState.lastY = e.clientY;
+  drawCrop();
+});
+window.addEventListener('mouseup', function() {
+  cropState.dragging = false;
+  vp.classList.remove('dragging');
+});
+
+// Touch drag
+vp.addEventListener('touchstart', function(e) {
+  if (e.touches.length === 1) {
+    cropState.dragging = true;
+    cropState.lastX = e.touches[0].clientX;
+    cropState.lastY = e.touches[0].clientY;
+  }
+}, { passive: true });
+vp.addEventListener('touchmove', function(e) {
+  e.preventDefault();
+  if (e.touches.length === 1 && cropState.dragging) {
+    cropState.x += e.touches[0].clientX - cropState.lastX;
+    cropState.y += e.touches[0].clientY - cropState.lastY;
+    cropState.lastX = e.touches[0].clientX;
+    cropState.lastY = e.touches[0].clientY;
+    drawCrop();
+  } else if (e.touches.length === 2) {
+    // Pinch zoom
+    var dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    if (cropState.lastPinch) {
+      cropState.zoom *= dist / cropState.lastPinch;
+      cropState.zoom = Math.min(Math.max(cropState.zoom, 0.5), 3);
+      document.getElementById('zoomSlider').value = Math.round(cropState.zoom * 100);
+      drawCrop();
+    }
+    cropState.lastPinch = dist;
+  }
+}, { passive: false });
+vp.addEventListener('touchend', function() {
+  cropState.dragging = false;
+  cropState.lastPinch = null;
+});
+
+// Scroll to zoom
+vp.addEventListener('wheel', function(e) {
+  e.preventDefault();
+  cropState.zoom *= e.deltaY < 0 ? 1.05 : 0.95;
+  cropState.zoom = Math.min(Math.max(cropState.zoom, 0.5), 3);
+  document.getElementById('zoomSlider').value = Math.round(cropState.zoom * 100);
+  drawCrop();
+}, { passive: false });
+
+function confirmCrop() {
+  // Export cropped image as blob
+  var c = document.getElementById('cropCanvas');
+  c.toBlob(function(blob) {
+    var croppedFile = new File([blob], 'cropped.jpg', { type: 'image/jpeg' });
+    document.getElementById('cropEditor').classList.remove('show');
+    document.getElementById('uploadArea').style.display = '';
+    processPhoto(croppedFile);
+  }, 'image/jpeg', 0.95);
+}
+
+async function doPhoto(file) {
+  if (!file.type.startsWith('image/')) { setMsg('photoStatus','Please select a JPEG or PNG image.','error'); return; }
+  if (file.size > 10*1024*1024) { setMsg('photoStatus','Photo too large — please use under 10MB.','error'); return; }
+  clearMsg('photoStatus');
+  // Show crop editor first
+  initCropEditor(file);
+}
+
+async function processPhoto(file) {
   if(!file.type.startsWith('image/')){setMsg('photoStatus','Please select a JPEG or PNG image.','error');return;}
   if(file.size>10*1024*1024){setMsg('photoStatus','Photo too large — please use under 10MB.','error');return;}
   document.getElementById('photoResult').classList.remove('show');
