@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -572,56 +573,73 @@ function filterCentresByCity(){
 
 // ── Photo purposes ────────────────────────────────────────
 const PURPOSES={
-  'uk-passport':['Passport Photo — 35×45mm'],
-  'us-passport':['Passport Photo — 51×51mm (2×2 inch)'],
-  'eu-passport':['Passport Photo — 35×45mm'],
-  'indian-passport':['Passport Photo — 35×45mm','OCI / Visa / Miscellaneous — 250×250px','PCC / GEP / Renunciation — 35×45mm'],
-  'pakistani-passport':['Passport Photo — 35×45mm','NICOP / POC — 35×45mm'],
-  'bangladeshi-passport':['Passport Photo — 35×45mm','NID — 35×45mm'],
-  'sri-lankan-passport':['Passport Photo — 35×45mm'],
-  'nigerian-passport':['Passport Photo — 35×45mm','NIN — 35×45mm'],
-  'ghanaian-passport':['Passport Photo — 35×45mm','EC — 35×45mm'],
-  'other-passport':['Passport Photo — 35×45mm'],
-  'schengen':['Schengen Visa Photo — 35×45mm'],
-  'france-visa':['France Visa Photo — 35×45mm'],
-  'germany-visa':['Germany Visa Photo — 35×45mm'],
-  'italy-visa':['Italy Visa Photo — 35×45mm'],
-  'spain-visa':['Spain Visa Photo — 35×45mm'],
-  'netherlands-visa':['Netherlands Visa Photo — 35×45mm'],
-  'sweden-visa':['Sweden Visa Photo — 35×45mm'],
-  'switzerland-visa':['Switzerland Visa Photo — 35×45mm'],
-  'uk-visa':['UK Visa Photo — 35×45mm'],
-  'us-visa':['US Visa Photo — 51×51mm (2×2 inch)'],
-  'canada-visa':['Canada Visa Photo — 35×45mm','Express Entry — 35×45mm'],
-  'australia-visa':['Australia Visa Photo — 35×45mm'],
-  'newzealand-visa':['New Zealand Visa Photo — 35×45mm'],
-  'ireland-visa':['Ireland Visa Photo — 35×45mm'],
-  'uae-visa':['UAE Visa Photo — 40×60mm','Emirates ID — 40×60mm'],
-  'saudi-visa':['Saudi Visa Photo — 40×60mm','Iqama — 40×60mm'],
-  'qatar-visa':['Qatar Visa Photo — 40×60mm','QID — 40×60mm'],
-  'kuwait-visa':['Kuwait Visa Photo — 40×60mm','Civil ID — 40×60mm'],
-  'bahrain-visa':['Bahrain Visa Photo — 40×60mm','CPR — 40×60mm'],
-  'oman-visa':['Oman Visa Photo — 40×60mm'],
-  'india-visa':['India e-Visa — 51×51mm','OCI Card — 35×45mm','PIO Card — 35×45mm'],
-  'china-visa':['China Visa Photo — 33×48mm'],
-  'japan-visa':['Japan Visa Photo — 35×45mm'],
-  'singapore-visa':['Singapore Visa Photo — 35×45mm','PR Application — 35×45mm'],
-  'malaysia-visa':['Malaysia Visa Photo — 35×45mm'],
-  'thailand-visa':['Thailand Visa Photo — 35×45mm'],
-  'sri-lanka-visa':['Sri Lanka e-Visa Photo — 35×45mm'],
-  'bangladesh-visa':['Bangladesh Visa Photo — 35×45mm','NID — 35×45mm'],
-  'nigeria-visa':['Nigeria Visa Photo — 35×45mm','NIN — 35×45mm'],
-  'ghana-visa':['Ghana Visa Photo — 35×45mm'],
-  'kenya-visa':['Kenya e-Visa Photo — 35×45mm'],
-  'southafrica-visa':['South Africa Visa Photo — 35×45mm'],
-  'ethiopia-visa':['Ethiopia Visa Photo — 35×45mm'],
-  'driving':['Driving Licence Photo — 35×45mm'],
-  'id-card':['ID Card / Biometric Photo — 35×45mm'],
-  'brp':['BRP / Residence Permit Photo — 35×45mm'],
-  'misc':['Standard Photo — 35×45mm','Custom Size'],
+  // ── Passport Renewal ──────────────────────────────────
+  'uk-passport':    ['UK Passport — 35×45mm (white or light grey background)'],
+  'us-passport':    ['US Passport — 51×51mm / 2×2 inch (white background)'],
+  'eu-passport':    ['EU Passport — 35×45mm (white or light grey background)'],
+  'indian-passport':['Indian Passport (Passport Seva) — 35×45mm','OCI Card — 51×51mm / 2×2 inch (square)','India e-Visa — 51×51mm / 2×2 inch (square)','PCC / Police Clearance — 35×45mm','GEP / Renunciation — 35×45mm'],
+  'pakistani-passport':['Pakistani Passport — 35×45mm','NICOP / POC / CNIC — 35×45mm'],
+  'bangladeshi-passport':['Bangladeshi Passport — 35×45mm','National ID (NID) — 35×45mm'],
+  'sri-lankan-passport':['Sri Lankan Passport — 35×45mm'],
+  'nigerian-passport':['Nigerian Passport — 35×45mm','National ID (NIN) — 35×45mm'],
+  'ghanaian-passport':['Ghanaian Passport — 35×45mm','Ghana Card (EC) — 35×45mm'],
+  'other-passport': ['Passport Photo (ICAO standard) — 35×45mm'],
+  // ── Schengen / Europe ─────────────────────────────────
+  'schengen':       ['Schengen Visa — 35×45mm (white or light grey background)'],
+  'france-visa':    ['France Visa (TLScontact) — 35×45mm'],
+  'germany-visa':   ['Germany Visa — 35×45mm'],
+  'italy-visa':     ['Italy Visa — 35×45mm'],
+  'spain-visa':     ['Spain Visa — 35×45mm'],
+  'netherlands-visa':['Netherlands Visa — 35×45mm'],
+  'sweden-visa':    ['Sweden Visa — 35×45mm'],
+  'switzerland-visa':['Switzerland Visa — 35×45mm'],
+  // ── English Speaking ──────────────────────────────────
+  'uk-visa':        ['UK Visa — 35×45mm (white or light grey background)'],
+  'us-visa':        ['US Visa (DS-160) — 51×51mm / 2×2 inch (white background)'],
+  'canada-visa':    ['Canada Visa / TRV — 50×70mm','Canada PR / Express Entry — 50×70mm','Canada eTA — 50×70mm'],
+  'australia-visa': ['Australia Visa — 35×45mm'],
+  'newzealand-visa':['New Zealand Visa — 35×45mm'],
+  'ireland-visa':   ['Ireland Visa — 35×45mm'],
+  // ── Middle East ───────────────────────────────────────
+  'uae-visa':       ['UAE Visa — 43×55mm (white background)','Emirates ID — 43×55mm (white background)'],
+  'saudi-visa':     ['Saudi Arabia Visa — 40×60mm (white background)','Iqama / Residence Permit — 40×60mm'],
+  'qatar-visa':     ['Qatar Visa — 40×60mm (white background)','Qatar ID (QID) — 40×60mm'],
+  'kuwait-visa':    ['Kuwait Visa — 40×60mm (white background)','Kuwait Civil ID — 40×60mm'],
+  'bahrain-visa':   ['Bahrain Visa — 40×60mm (white background)','Bahrain CPR — 40×60mm'],
+  'oman-visa':      ['Oman Visa — 40×60mm (white background)'],
+  // ── Asia ──────────────────────────────────────────────
+  'india-visa':     ['India e-Visa — 51×51mm / 2×2 inch (square)','OCI Card — 51×51mm / 2×2 inch (square)','PIO Card — 35×45mm'],
+  'china-visa':     ['China Visa — 33×48mm (white background)'],
+  'japan-visa':     ['Japan Visa — 35×45mm (white background)'],
+  'singapore-visa': ['Singapore Visa — 35×45mm','Singapore PR — 35×45mm'],
+  'malaysia-visa':  ['Malaysia Visa — 35×45mm'],
+  'thailand-visa':  ['Thailand Visa — 35×45mm'],
+  'sri-lanka-visa': ['Sri Lanka e-Visa — 35×45mm'],
+  'bangladesh-visa':['Bangladesh Visa — 35×45mm'],
+  // ── Africa ────────────────────────────────────────────
+  'nigeria-visa':   ['Nigeria Visa — 35×45mm'],
+  'ghana-visa':     ['Ghana Visa — 35×45mm'],
+  'kenya-visa':     ['Kenya e-Visa — 35×45mm'],
+  'southafrica-visa':['South Africa Visa — 35×45mm'],
+  'ethiopia-visa':  ['Ethiopia Visa — 35×45mm'],
+  // ── Other Documents ───────────────────────────────────
+  'driving':        ['UK Driving Licence — 35×45mm (light grey background)'],
+  'id-card':        ['National ID / Biometric Card — 35×45mm'],
+  'brp':            ['BRP / Biometric Residence Permit — 35×45mm'],
+  'misc':           ['Standard ICAO Photo — 35×45mm','US Standard — 51×51mm / 2×2 inch','Canada Standard — 50×70mm','Middle East Standard — 40×60mm'],
 };
 
-function updatePurpose(){
+// ── Photo size lookup ─────────────────────────────────────
+function getPhotoSize(purpose) {
+  if (!purpose) return { w: 35, h: 45 };
+  const p = purpose.toLowerCase();
+  if (p.includes('51×51') || p.includes('2×2'))      return { w: 51, h: 51 };
+  if (p.includes('50×70') || p.includes('canada'))    return { w: 50, h: 70 };
+  if (p.includes('43×55'))                             return { w: 43, h: 55 };
+  if (p.includes('40×60'))                             return { w: 40, h: 60 };
+  if (p.includes('33×48'))                             return { w: 33, h: 48 };
+  return { w: 35, h: 45 }; // default ICAO
+}
   const cat=document.getElementById('visaCat').value;
   const sel=document.getElementById('photoPurpose');
   sel.innerHTML='<option value="">Select photo purpose…</option>';
@@ -706,12 +724,19 @@ async function doPhoto(file){
 }
 
 async function buildPassport(imgData){
+  const purpose=document.getElementById('photoPurpose').value;
+  const size=getPhotoSize(purpose);
+  const DPI=300;
+  const outW=Math.round(size.w/25.4*DPI);
+  const outH=Math.round(size.h/25.4*DPI);
+
   const img=await loadImg(imgData);
   const iw=img.naturalWidth,ih=img.naturalHeight;
   const rc=document.getElementById('removedCanvas');rc.width=300;rc.height=300;
   const rctx=rc.getContext('2d');rctx.clearRect(0,0,300,300);
   const side=Math.min(iw,ih);rctx.drawImage(img,(iw-side)/2,(ih-side)/2,side,side,0,0,300,300);
-  const outW=700,outH=900;passC=document.getElementById('passportCanvas');passC.width=outW;passC.height=outH;
+
+  passC=document.getElementById('passportCanvas');passC.width=outW;passC.height=outH;
   const pc=passC.getContext('2d');pc.fillStyle='#ffffff';pc.fillRect(0,0,outW,outH);
   const scale=Math.max(outW/iw,(outH*0.92)/ih);const sw=iw*scale,sh=ih*scale;
   pc.drawImage(img,(outW-sw)/2,outH*0.04,sw,sh);
