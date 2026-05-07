@@ -1067,25 +1067,27 @@ function s3(){
     cardEl.addEventListener('change',e=>{document.getElementById('card-errors').textContent=e.error?e.error.message:'';});
   }
   // Create payment intent with reCAPTCHA
-  try {
-    var recaptchaToken = '';
-    if (typeof grecaptcha !== 'undefined') {
-      recaptchaToken = await new Promise(function(resolve) {
-        grecaptcha.ready(function() {
-          grecaptcha.execute('6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM', {action:'payment'}).then(resolve).catch(function(){ resolve(''); });
+  (async function() {
+    try {
+      var recaptchaToken = '';
+      if (typeof grecaptcha !== 'undefined') {
+        recaptchaToken = await new Promise(function(resolve) {
+          grecaptcha.ready(function() {
+            grecaptcha.execute('6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM', {action:'payment'}).then(resolve).catch(function(){ resolve(''); });
+          });
         });
+      }
+      fetch('/api/create-payment-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,recaptchaToken})}).then(r=>r.json()).then(d=>{
+        paymentIntentSecret=d.clientSecret;
+        document.getElementById('payBtn').disabled=false;
+      });
+    } catch(e) {
+      fetch('/api/create-payment-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,recaptchaToken:''})}).then(r=>r.json()).then(d=>{
+        paymentIntentSecret=d.clientSecret;
+        document.getElementById('payBtn').disabled=false;
       });
     }
-    fetch('/api/create-payment-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,recaptchaToken})}).then(r=>r.json()).then(d=>{
-      paymentIntentSecret=d.clientSecret;
-      document.getElementById('payBtn').disabled=false;
-    });
-  } catch(e) {
-    fetch('/api/create-payment-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,recaptchaToken:''})}).then(r=>r.json()).then(d=>{
-      paymentIntentSecret=d.clientSecret;
-      document.getElementById('payBtn').disabled=false;
-    });
-  }
+  })();
 }
 
 async function doPayment(){
