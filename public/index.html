@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -7,6 +6,7 @@
 <title>Photobooth App</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 <script src="https://js.stripe.com/v3/"></script>
+<script src="https://www.google.com/recaptcha/api.js?render=6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 :root{
@@ -766,8 +766,8 @@ function clearMsg(id){document.getElementById(id).className='status';}
 
 // ── Crop Editor ──────────────────────────────────────────
 var cropState = {
-  img: null, x: 0, y: 0, zoom: 1, rotation: 0,
-  dragging: false, lastX: 0, lastY: 0,
+  img: null, x: 0, y: 0, zoom: 1, baseZoom: 1, rotation: 0,
+  dragging: false, lastX: 0, lastY: 0, lastPinch: null,
   vpSize: 300
 };
 
@@ -776,16 +776,20 @@ function initCropEditor(file) {
   reader.onload = function(e) {
     var img = new Image();
     img.onload = function() {
-      cropState.img = img;
-      cropState.rotation = 0;
-      cropState.zoom = 1;
-      // Centre image
       var vp = cropState.vpSize;
-      var scale = Math.max(vp / img.width, vp / img.height);
-      cropState.zoom = scale;
-      cropState.x = (vp - img.width * scale) / 2;
-      cropState.y = (vp - img.height * scale) / 2;
-      document.getElementById('zoomSlider').value = Math.round(scale * 100);
+      // Base zoom fills the viewport
+      var baseZoom = Math.max(vp / img.naturalWidth, vp / img.naturalHeight);
+      cropState.img      = img;
+      cropState.rotation = 0;
+      cropState.baseZoom = baseZoom;
+      cropState.zoom     = baseZoom;
+      // Centre
+      cropState.x = (vp - img.naturalWidth  * baseZoom) / 2;
+      cropState.y = (vp - img.naturalHeight * baseZoom) / 2;
+      // Slider: 100 = base zoom, range 100–300
+      document.getElementById('zoomSlider').min   = 100;
+      document.getElementById('zoomSlider').max   = 300;
+      document.getElementById('zoomSlider').value = 100;
       drawCrop();
       document.getElementById('uploadArea').style.display = 'none';
       document.getElementById('cropEditor').classList.add('show');
@@ -796,20 +800,34 @@ function initCropEditor(file) {
 }
 
 function drawCrop() {
-  var c = document.getElementById('cropCanvas');
-  var vp = cropState.vpSize;
+  var c   = document.getElementById('cropCanvas');
+  var vp  = cropState.vpSize;
   c.width = vp; c.height = vp;
   var ctx = c.getContext('2d');
-  ctx.clearRect(0, 0, vp, vp);
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, vp, vp);
   ctx.save();
-  ctx.translate(vp/2, vp/2);
+  // Rotate around centre of viewport
+  ctx.translate(vp / 2, vp / 2);
   ctx.rotate(cropState.rotation * Math.PI / 180);
-  ctx.translate(-vp/2, -vp/2);
+  ctx.translate(-vp / 2, -vp / 2);
   var img = cropState.img;
-  var w = img.width * cropState.zoom;
-  var h = img.height * cropState.zoom;
+  var w   = img.naturalWidth  * cropState.zoom;
+  var h   = img.naturalHeight * cropState.zoom;
   ctx.drawImage(img, cropState.x, cropState.y, w, h);
   ctx.restore();
+}
+
+function zoomAroundCentre(newZoom) {
+  var vp      = cropState.vpSize;
+  var cx      = vp / 2;
+  var cy      = vp / 2;
+  var oldZoom = cropState.zoom;
+  var ratio   = newZoom / oldZoom;
+  // Adjust x/y so zoom is anchored to viewport centre
+  cropState.x     = cx - (cx - cropState.x) * ratio;
+  cropState.y     = cy - (cy - cropState.y) * ratio;
+  cropState.zoom  = newZoom;
 }
 
 function rotateCrop(deg) {
@@ -818,17 +836,20 @@ function rotateCrop(deg) {
 }
 
 document.getElementById('zoomSlider').addEventListener('input', function() {
-  cropState.zoom = parseFloat(this.value) / 100;
+  // Slider 100 = baseZoom, 300 = 3x baseZoom
+  var factor   = parseFloat(this.value) / 100;
+  var newZoom  = cropState.baseZoom * factor;
+  zoomAroundCentre(newZoom);
   drawCrop();
 });
 
 // Mouse drag
-var vp = document.getElementById('cropViewport');
-vp.addEventListener('mousedown', function(e) {
+var vpEl = document.getElementById('cropViewport');
+vpEl.addEventListener('mousedown', function(e) {
   cropState.dragging = true;
   cropState.lastX = e.clientX;
   cropState.lastY = e.clientY;
-  vp.classList.add('dragging');
+  vpEl.classList.add('dragging');
 });
 window.addEventListener('mousemove', function(e) {
   if (!cropState.dragging) return;
@@ -840,18 +861,19 @@ window.addEventListener('mousemove', function(e) {
 });
 window.addEventListener('mouseup', function() {
   cropState.dragging = false;
-  vp.classList.remove('dragging');
+  vpEl.classList.remove('dragging');
 });
 
-// Touch drag
-vp.addEventListener('touchstart', function(e) {
+// Touch drag + pinch zoom
+vpEl.addEventListener('touchstart', function(e) {
   if (e.touches.length === 1) {
     cropState.dragging = true;
     cropState.lastX = e.touches[0].clientX;
     cropState.lastY = e.touches[0].clientY;
   }
 }, { passive: true });
-vp.addEventListener('touchmove', function(e) {
+
+vpEl.addEventListener('touchmove', function(e) {
   e.preventDefault();
   if (e.touches.length === 1 && cropState.dragging) {
     cropState.x += e.touches[0].clientX - cropState.lastX;
@@ -860,36 +882,87 @@ vp.addEventListener('touchmove', function(e) {
     cropState.lastY = e.touches[0].clientY;
     drawCrop();
   } else if (e.touches.length === 2) {
-    // Pinch zoom
-    var dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+    var dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
     if (cropState.lastPinch) {
-      cropState.zoom *= dist / cropState.lastPinch;
-      cropState.zoom = Math.min(Math.max(cropState.zoom, 0.5), 3);
-      document.getElementById('zoomSlider').value = Math.round(cropState.zoom * 100);
+      var newZoom = Math.min(Math.max(cropState.zoom * (dist / cropState.lastPinch), cropState.baseZoom), cropState.baseZoom * 3);
+      var sliderVal = Math.round((newZoom / cropState.baseZoom) * 100);
+      document.getElementById('zoomSlider').value = sliderVal;
+      zoomAroundCentre(newZoom);
       drawCrop();
     }
     cropState.lastPinch = dist;
   }
 }, { passive: false });
-vp.addEventListener('touchend', function() {
+
+vpEl.addEventListener('touchend', function() {
   cropState.dragging = false;
   cropState.lastPinch = null;
 });
 
 // Scroll to zoom
-vp.addEventListener('wheel', function(e) {
+vpEl.addEventListener('wheel', function(e) {
   e.preventDefault();
-  cropState.zoom *= e.deltaY < 0 ? 1.05 : 0.95;
-  cropState.zoom = Math.min(Math.max(cropState.zoom, 0.5), 3);
-  document.getElementById('zoomSlider').value = Math.round(cropState.zoom * 100);
+  var factor  = e.deltaY < 0 ? 1.08 : 0.92;
+  var newZoom = Math.min(Math.max(cropState.zoom * factor, cropState.baseZoom), cropState.baseZoom * 3);
+  var sliderVal = Math.round((newZoom / cropState.baseZoom) * 100);
+  document.getElementById('zoomSlider').value = sliderVal;
+  zoomAroundCentre(newZoom);
   drawCrop();
 }, { passive: false });
 
-function confirmCrop() {
-  // Export cropped image as blob
+async function confirmCrop() {
+  var btn = document.querySelector('.crop-confirm');
+  btn.disabled = true;
+  btn.textContent = '🤖 Checking photo quality…';
+
   var c = document.getElementById('cropCanvas');
-  c.toBlob(function(blob) {
+  c.toBlob(async function(blob) {
     var croppedFile = new File([blob], 'cropped.jpg', { type: 'image/jpeg' });
+
+    // ── AI validation after crop ──────────────────────────
+    try {
+      var fd = new FormData();
+      fd.append('photo', croppedFile);
+      var valRes  = await fetch('/api/validate-photo', { method: 'POST', body: fd });
+      var valData = await valRes.json();
+
+      if (!valData.approved) {
+        var issueMessages = {
+          'glasses_detected': '👓 Glasses detected — please remove your glasses and retake.',
+          'no_face':          '😶 No face detected — make sure your face is clearly visible.',
+          'multiple_faces':   '👥 Multiple faces — only one person should be in the photo.',
+          'eyes_closed':      '👁️ Eyes appear closed — please keep your eyes fully open.',
+          'head_tilted':      '↩️ Head is tilted — please look straight at the camera.',
+          'hat_or_headwear':  '🧢 Hat detected — please remove it.',
+          'poor_lighting':    '💡 Poor lighting — please take the photo in a well-lit area.',
+          'face_too_small':   '🔍 Face too small — please move closer to the camera.',
+          'blurry':           '📷 Photo is blurry — please retake with a steady hand.',
+          'mouth_open':       '😮 Mouth open — please close your mouth.',
+        };
+        var issueList = (valData.issues||[]).map(function(i){ return issueMessages[i]||i; });
+        var msgHtml = issueList.length > 0
+          ? '<strong>Photo rejected — please retake</strong><br><br>' + issueList.join('<br>')
+          : (valData.message || 'Photo did not meet requirements. Please retake.');
+
+        // Show error and reset crop editor
+        btn.disabled = false;
+        btn.textContent = '✓ Use This Photo →';
+        document.getElementById('cropEditor').classList.remove('show');
+        document.getElementById('uploadArea').style.display = '';
+        setMsg('photoStatus', msgHtml, 'error');
+        return;
+      }
+    } catch(e) {
+      // If validation fails silently, allow through
+      console.warn('Validation skipped:', e.message);
+    }
+
+    // ── All good — proceed to processing ─────────────────
+    btn.disabled = false;
+    btn.textContent = '✓ Use This Photo →';
     document.getElementById('cropEditor').classList.remove('show');
     document.getElementById('uploadArea').style.display = '';
     processPhoto(croppedFile);
@@ -992,7 +1065,11 @@ function s3(){
     cardEl.mount('#card-element');
     cardEl.addEventListener('change',e=>{document.getElementById('card-errors').textContent=e.error?e.error.message:'';});
   }
-  fetch('/api/create-payment-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email})}).then(r=>r.json()).then(d=>{paymentIntentSecret=d.clientSecret;});
+  grecaptcha.ready(function() {
+    grecaptcha.execute('6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM', {action: 'payment'}).then(function(token) {
+      fetch('/api/create-payment-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,recaptchaToken:token})}).then(r=>r.json()).then(d=>{paymentIntentSecret=d.clientSecret;});
+    });
+  });
 }
 
 async function doPayment(){
