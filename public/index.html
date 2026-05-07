@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -447,7 +448,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);
         <div class="rt-step" id="pt4"><div class="rt-icon">🎉</div><div style="flex:1"><div class="rt-label">Order complete</div><div class="rt-sub">Check your inbox!</div></div><span class="rt-badge pending" id="pt4-badge">Waiting</span></div>
       </div>
       <div class="status" id="payStatus"></div>
-      <div class="nav-row"><button class="btn btn-ghost" id="backBtn" onclick="goTo(3)">← Back</button><button class="btn btn-navy" id="payBtn" onclick="doPayment()">Pay £6.99</button></div>
+      <div class="nav-row"><button class="btn btn-ghost" id="backBtn" onclick="goTo(3)">← Back</button><button class="btn btn-navy" id="payBtn" onclick="doPayment()" disabled>Pay £6.99</button></div>
     </div>
   </div>
 
@@ -1065,11 +1066,26 @@ function s3(){
     cardEl.mount('#card-element');
     cardEl.addEventListener('change',e=>{document.getElementById('card-errors').textContent=e.error?e.error.message:'';});
   }
-  grecaptcha.ready(function() {
-    grecaptcha.execute('6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM', {action: 'payment'}).then(function(token) {
-      fetch('/api/create-payment-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,recaptchaToken:token})}).then(r=>r.json()).then(d=>{paymentIntentSecret=d.clientSecret;});
+  // Create payment intent with reCAPTCHA
+  try {
+    var recaptchaToken = '';
+    if (typeof grecaptcha !== 'undefined') {
+      recaptchaToken = await new Promise(function(resolve) {
+        grecaptcha.ready(function() {
+          grecaptcha.execute('6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM', {action:'payment'}).then(resolve).catch(function(){ resolve(''); });
+        });
+      });
+    }
+    fetch('/api/create-payment-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,recaptchaToken})}).then(r=>r.json()).then(d=>{
+      paymentIntentSecret=d.clientSecret;
+      document.getElementById('payBtn').disabled=false;
     });
-  });
+  } catch(e) {
+    fetch('/api/create-payment-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,recaptchaToken:''})}).then(r=>r.json()).then(d=>{
+      paymentIntentSecret=d.clientSecret;
+      document.getElementById('payBtn').disabled=false;
+    });
+  }
 }
 
 async function doPayment(){
