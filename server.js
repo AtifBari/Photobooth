@@ -55,6 +55,37 @@ function validateFileType(buffer) {
   var hex = buffer.slice(0,4).toString('hex');
   return hex.startsWith('ffd8ff') || hex.startsWith('89504e47');
 }
+
+// Validate image dimensions using buffer
+function validateImageDimensions(buffer) {
+  return new Promise(function(resolve) {
+    try {
+      var hex = buffer.slice(0,4).toString('hex');
+      var width = 0, height = 0;
+      if (hex.startsWith('ffd8ff')) {
+        // JPEG — scan for SOF marker
+        var i = 2;
+        while (i < buffer.length - 8) {
+          if (buffer[i] === 0xFF && (buffer[i+1] === 0xC0 || buffer[i+1] === 0xC2)) {
+            height = buffer.readUInt16BE(i+5);
+            width  = buffer.readUInt16BE(i+7);
+            break;
+          }
+          i++;
+        }
+      } else if (hex.startsWith('89504e47')) {
+        // PNG — dimensions at bytes 16-24
+        width  = buffer.readUInt32BE(16);
+        height = buffer.readUInt32BE(20);
+      }
+      if (width < 100 || height < 100) return resolve({ valid: false, error: 'Image too small — minimum 100x100 pixels.' });
+      if (width > 8000 || height > 8000) return resolve({ valid: false, error: 'Image too large — maximum 8000x8000 pixels.' });
+      resolve({ valid: true, width: width, height: height });
+    } catch(e) {
+      resolve({ valid: true }); // fail open
+    }
+  });
+}
 var upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024, files: 1 },
@@ -118,18 +149,20 @@ function sanitise(str) {
 
 // ── reCAPTCHA v3 verification ─────────────────────────────
 function verifyRecaptcha(token, minScore) {
+  if (!token || !process.env.RECAPTCHA_SECRET_KEY) return Promise.resolve(true); // skip if not configured
   minScore = minScore || 0.5;
   return axios.post('https://www.google.com/recaptcha/api/siteverify', null, {
-    params: {
-      secret: process.env.RECAPTCHA_SECRET_KEY,
-      response: token
-    }
+    params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: token }
   }).then(function(r) {
     var data = r.data;
-    if (!data.success) return false;
-    if (data.score < minScore) return false;
+    console.log('reCAPTCHA score:', data.score, '| success:', data.success, '| action:', data.action);
+    if (!data.success) { console.warn('reCAPTCHA failed:', data['error-codes']); return false; }
+    if (data.score < minScore) { console.warn('reCAPTCHA score too low:', data.score); return false; }
     return true;
-  }).catch(function() { return true; }); // fail open so real users not blocked
+  }).catch(function(err) {
+    console.error('reCAPTCHA error:', err.message);
+    return true; // fail open — never block real users due to API error
+  });
 }
 
 app.use(express.json({ limit: '20mb' }));
@@ -204,19 +237,26 @@ app.post('/api/validate-photo', rateLimit(20, 60000), upload.single('photo'), fu
 app.post('/api/remove-bg', rateLimit(20, 60000), upload.single('photo'), function(req, res) {
   if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
   if (!validateFileType(req.file.buffer)) return res.status(400).json({ error: 'Invalid file type.' });
-  var fd = new FormData();
-  fd.append('image_file', req.file.buffer, { filename: 'photo.jpg', contentType: req.file.mimetype });
-  fd.append('size', 'auto');
-  axios.post('https://api.remove.bg/v1.0/removebg', fd, {
-    headers: Object.assign({ 'X-Api-Key': process.env.REMOVE_BG_KEY }, fd.getHeaders()),
-    responseType: 'arraybuffer'
-  }).then(function(response) {
-    res.json({ success: true, image: 'data:image/png;base64,' + Buffer.from(response.data).toString('base64') });
-  }).catch(function(err) {
-    Sentry.captureException(err);
-    var msg = err.message;
-    if (err.response && err.response.data) msg = Buffer.from(err.response.data).toString();
-    res.status(500).json({ error: msg });
+  var recaptchaToken = req.body && req.body.recaptchaToken;
+  validateImageDimensions(req.file.buffer).then(function(dimCheck) {
+    if (!dimCheck.valid) return res.status(400).json({ error: dimCheck.error });
+    verifyRecaptcha(recaptchaToken, 0.3).then(function(valid) {
+    if (!valid) return res.status(400).json({ error: 'Security check failed. Please try again.' });
+    var fd = new FormData();
+    fd.append('image_file', req.file.buffer, { filename: 'photo.jpg', contentType: req.file.mimetype });
+    fd.append('size', 'auto');
+    axios.post('https://api.remove.bg/v1.0/removebg', fd, {
+      headers: Object.assign({ 'X-Api-Key': process.env.REMOVE_BG_KEY }, fd.getHeaders()),
+      responseType: 'arraybuffer'
+    }).then(function(response) {
+      res.json({ success: true, image: 'data:image/png;base64,' + Buffer.from(response.data).toString('base64') });
+    }).catch(function(err) {
+      Sentry.captureException(err);
+      var msg = err.message;
+      if (err.response && err.response.data) msg = Buffer.from(err.response.data).toString();
+      res.status(500).json({ error: msg });
+    });
+    });
   });
 });
 
