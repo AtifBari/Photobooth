@@ -1107,7 +1107,6 @@ function s3(){
 async function doPayment(){
   const cn=document.getElementById('cardName').value.trim();
   if(!cn){document.getElementById('card-errors').textContent='Please enter the name on your card.';return;}
-  if(!paymentIntentSecret){setMsg('payStatus','Payment not ready — please wait a moment.','error');return;}
   const btn=document.getElementById('payBtn');
   btn.disabled=true;document.getElementById('backBtn').disabled=true;
   btn.innerHTML='<span class="spinner"></span>Processing…';
@@ -1115,6 +1114,17 @@ async function doPayment(){
   document.getElementById('payTracker').classList.add('show');
   rtSet('pt1','active','Authorising…');rtSet('pt2','pending','Waiting');rtSet('pt3','pending','Waiting');rtSet('pt4','pending','Waiting');
   try{
+    // If payment intent not ready yet, wait up to 10 seconds
+    if(!paymentIntentSecret){
+      let waited = 0;
+      await new Promise(function(resolve){
+        var check = setInterval(function(){
+          waited += 200;
+          if(paymentIntentSecret || waited >= 10000){ clearInterval(check); resolve(); }
+        }, 200);
+      });
+    }
+    if(!paymentIntentSecret) throw new Error('Payment setup failed. Please go back and try again.');
     // Step 1: Confirm payment with Stripe
     const{error,paymentIntent}=await stripe.confirmCardPayment(paymentIntentSecret,{payment_method:{card:cardEl,billing_details:{name:cn,email:document.getElementById('email').value}}});
     if(error)throw new Error(error.message);
