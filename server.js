@@ -84,20 +84,8 @@ app.use(function(req, res, next) {
   next();
 });
 
-// ── CORS — only allow own domain ──────────────────────────
-app.use(cors({
-  origin: function(origin, callback) {
-    var allowed = [
-      'https://photobooth-app-0pb9.onrender.com',
-      'https://www.photoboothapp.co.uk',
-      'https://photoboothapp.co.uk',
-      'http://localhost:3000'
-    ];
-    if (!origin || allowed.includes(origin)) return callback(null, true);
-    callback(new Error('Not allowed by CORS'));
-  },
-  credentials: true
-}));
+// ── CORS ──────────────────────────────────────────────────
+app.use(cors());
 
 // ── Rate limiting ─────────────────────────────────────────
 var rateLimitStore = {};
@@ -233,18 +221,11 @@ app.post('/api/remove-bg', rateLimit(20, 60000), upload.single('photo'), functio
 });
 
 // ── Create payment intent ─────────────────────────────────
-app.post('/api/create-payment-intent', rateLimit(10, 60000), async function(req, res) {
+app.post('/api/create-payment-intent', rateLimit(30, 60000), function(req, res) {
   var name  = sanitise(req.body.name);
   var email = sanitise(req.body.email);
-  var recaptchaToken = req.body.recaptchaToken;
 
   if (!name || !email || !email.includes('@')) return res.status(400).json({ error: 'Invalid details' });
-
-  // Verify reCAPTCHA
-  if (recaptchaToken) {
-    var valid = await verifyRecaptcha(recaptchaToken, 0.3);
-    if (!valid) return res.status(400).json({ error: 'Security check failed. Please try again.' });
-  }
 
   stripe.paymentIntents.create({
     amount: parseInt(process.env.PRICE_PENCE) || 699,
@@ -255,6 +236,7 @@ app.post('/api/create-payment-intent', rateLimit(10, 60000), async function(req,
     res.json({ clientSecret: intent.client_secret });
   }).catch(function(err) {
     Sentry.captureException(err);
+    console.error('Stripe error:', err.message);
     res.status(500).json({ error: err.message });
   });
 });
