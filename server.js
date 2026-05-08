@@ -118,7 +118,25 @@ app.use(function(req, res, next) {
 // ── CORS ──────────────────────────────────────────────────
 app.use(cors());
 
-// ── Rate limiting ─────────────────────────────────────────
+// ── Structured request logging ────────────────────────────
+app.use(function(req, res, next) {
+  var start = Date.now();
+  var ip = req.headers['x-forwarded-for'] || req.ip || req.connection.remoteAddress || 'unknown';
+  res.on('finish', function() {
+    var log = {
+      ts:       new Date().toISOString(),
+      method:   req.method,
+      endpoint: req.path,
+      status:   res.statusCode,
+      ms:       Date.now() - start,
+      ip:       ip.split(',')[0].trim(),
+      ua:       (req.headers['user-agent'] || '').substring(0, 120),
+    };
+    var level = res.statusCode >= 500 ? 'ERROR' : res.statusCode >= 400 ? 'WARN' : 'INFO';
+    console.log('[' + level + '] ' + JSON.stringify(log));
+  });
+  next();
+});
 var rateLimitStore = {};
 function rateLimit(maxRequests, windowMs) {
   return function(req, res, next) {
@@ -129,6 +147,13 @@ function rateLimit(maxRequests, windowMs) {
     if (now > rateLimitStore[key].resetAt) rateLimitStore[key] = { count: 0, resetAt: now + windowMs };
     rateLimitStore[key].count++;
     if (rateLimitStore[key].count > maxRequests) {
+      console.log('[WARN] ' + JSON.stringify({
+        ts: new Date().toISOString(),
+        event: 'rate_limit_exceeded',
+        ip: ip,
+        endpoint: req.path,
+        count: rateLimitStore[key].count
+      }));
       return res.status(429).json({ error: 'Too many requests. Please wait a moment and try again.' });
     }
     next();
@@ -172,11 +197,25 @@ app.use(express.static('public'));
 // ── In-memory photo store ─────────────────────────────────
 var photoStore = {};
 function storePhoto(token, imgBuffer) {
-  photoStore[token] = { buffer: imgBuffer, createdAt: Date.now() };
+  photoStore[token] = { buffer: imgBuffer, createdAt: Date.now(), used: false };
   setTimeout(function() { delete photoStore[token]; }, 30 * 60 * 1000);
 }
-function getPhoto(token) { return photoStore[token] || null; }
-function deletePhoto(token) { delete photoStore[token]; }
+function getPhoto(token) {
+  var entry = photoStore[token];
+  if (!entry) return null;
+  if (entry.used) {
+    console.log('[WARN] ' + JSON.stringify({ ts: new Date().toISOString(), event: 'photo_token_reuse_attempt', token: token.substring(0,8)+'...' }));
+    return null; // token already used — reject
+  }
+  return entry;
+}
+function deletePhoto(token) {
+  if (photoStore[token]) {
+    photoStore[token].used = true; // mark as used immediately
+    photoStore[token].buffer = null; // clear buffer from memory immediately
+    delete photoStore[token];
+  }
+}
 setInterval(function() {
   var now = Date.now();
   Object.keys(photoStore).forEach(function(k) {
@@ -315,6 +354,8 @@ app.post('/api/confirm-order', rateLimit(10, 60000), function(req, res) {
   // Verify payment with Stripe
   stripe.paymentIntents.retrieve(paymentIntentId, function(err, intent) {
     if (err || !intent || intent.status !== 'succeeded') {
+      var ip2 = (req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
+      console.log('[WARN] ' + JSON.stringify({ ts: new Date().toISOString(), event: 'payment_verification_failed', ip: ip2, paymentIntentId: paymentIntentId, status: intent ? intent.status : 'error' }));
       Sentry.captureMessage('Payment verification failed: ' + paymentIntentId);
       return res.status(402).json({ error: 'Payment not verified. Please contact support.' });
     }
@@ -410,8 +451,12 @@ app.post('/api/stripe-webhook', function(req, res) {
 // ════════════════════════════════════════════════════════
 
 app.post('/api/admin/login', rateLimit(5, 60000), function(req, res) {
-  if (!req.body.password || req.body.password !== process.env.ADMIN_PASSWORD)
+  var ip = (req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
+  if (!req.body.password || req.body.password !== process.env.ADMIN_PASSWORD) {
+    console.log('[WARN] ' + JSON.stringify({ ts: new Date().toISOString(), event: 'admin_login_failed', ip: ip }));
     return res.status(401).json({ error: 'Invalid password' });
+  }
+  console.log('[INFO] ' + JSON.stringify({ ts: new Date().toISOString(), event: 'admin_login_success', ip: ip }));
   res.json({ success: true, token: process.env.ADMIN_TOKEN });
 });
 
@@ -502,7 +547,16 @@ app.get('/api/health', function(req, res) {
 Sentry.setupExpressErrorHandler(app);
 
 app.use(function(err, req, res, next) {
-  console.error(err.message);
+  var ip = (req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
+  console.log('[ERROR] ' + JSON.stringify({
+    ts:       new Date().toISOString(),
+    method:   req.method,
+    endpoint: req.path,
+    ip:       ip,
+    error:    err.message,
+    stack:    err.stack ? err.stack.split('\n')[1].trim() : ''
+  }));
+  Sentry.captureException(err);
   res.status(500).json({ error: 'Something went wrong. Please try again.' });
 });
 
