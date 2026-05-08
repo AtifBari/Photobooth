@@ -188,13 +188,14 @@ function adminAuth(req, res, next) {
 // ════════════════════════════════════════════════════════
 
 // ── Validate photo (Claude AI) ────────────────────────────
+// ── Validate photo (Claude AI) ────────────────────────────
 app.post('/api/validate-photo', rateLimit(20, 60000), upload.single('photo'), function(req, res) {
   if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
   if (!validateFileType(req.file.buffer)) return res.status(400).json({ error: 'Invalid file type.' });
   var base64Image = req.file.buffer.toString('base64');
   var mimeType = req.file.mimetype;
   axios.post('https://api.anthropic.com/v1/messages', {
-    model: 'claude-sonnet-4-6', max_tokens: 400,
+    model: 'claude-haiku-4-5-20251001', max_tokens: 400,
     messages: [{ role: 'user', content: [
       { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
       { type: 'text', text: 'Analyse this photo for passport compliance. Reply ONLY valid JSON no markdown.\n{"approved":true,"issues":[],"message":"one sentence"}\nCheck: glasses_detected, no_face, multiple_faces, eyes_closed, head_tilted, hat_or_headwear, poor_lighting, face_too_small, blurry, mouth_open. Set approved false if issues found.' }
@@ -206,6 +207,7 @@ app.post('/api/validate-photo', rateLimit(20, 60000), upload.single('photo'), fu
     catch(e) { res.json({ approved: true, issues: [], message: 'Photo accepted.' }); }
   }).catch(function(err) {
     Sentry.captureException(err);
+    console.error('Claude error:', err.response ? JSON.stringify(err.response.data) : err.message);
     res.json({ approved: true, issues: [], message: 'Photo accepted.' });
   });
 });
