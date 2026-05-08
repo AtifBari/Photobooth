@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -918,7 +917,6 @@ async function confirmCrop() {
   var btn = document.querySelector('.crop-confirm');
   btn.disabled = true;
   btn.textContent = '🤖 Checking photo quality…';
-
   var c = document.getElementById('cropCanvas');
   c.toBlob(async function(blob) {
     var croppedFile = new File([blob], 'cropped.jpg', { type: 'image/jpeg' });
@@ -929,7 +927,6 @@ async function confirmCrop() {
       fd.append('photo', croppedFile);
       var valRes  = await fetch('/api/validate-photo', { method: 'POST', body: fd });
       var valData = await valRes.json();
-
       if (!valData.approved) {
         var issueMessages = {
           'glasses_detected': '👓 Glasses detected — please remove your glasses and retake.',
@@ -947,8 +944,6 @@ async function confirmCrop() {
         var msgHtml = issueList.length > 0
           ? '<strong>Photo rejected — please retake</strong><br><br>' + issueList.join('<br>')
           : (valData.message || 'Photo did not meet requirements. Please retake.');
-
-        // Show error and reset crop editor
         btn.disabled = false;
         btn.textContent = '✓ Use This Photo →';
         document.getElementById('cropEditor').classList.remove('show');
@@ -957,11 +952,10 @@ async function confirmCrop() {
         return;
       }
     } catch(e) {
-      // If validation fails silently, allow through
       console.warn('Validation skipped:', e.message);
     }
 
-    // ── All good — proceed to processing ─────────────────
+    // ── Proceed to processing ─────────────────────────────
     btn.disabled = false;
     btn.textContent = '✓ Use This Photo →';
     document.getElementById('cropEditor').classList.remove('show');
