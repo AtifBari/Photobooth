@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1053,6 +1054,11 @@ function s3(){
     <div class="sum-total-row"><span class="sum-total-lbl">Total</span><span class="sum-total-val">£6.99</span></div>
   `;
   goTo(4);
+  paymentIntentSecret = null;
+  var payBtn = document.getElementById('payBtn');
+  payBtn.disabled = true;
+  payBtn.textContent = 'Preparing…';
+
   if(!stripe){
     stripe=Stripe(STRIPE_PUB);
     const elements=stripe.elements();
@@ -1060,28 +1066,42 @@ function s3(){
     cardEl.mount('#card-element');
     cardEl.addEventListener('change',e=>{document.getElementById('card-errors').textContent=e.error?e.error.message:'';});
   }
-  // Create payment intent with reCAPTCHA
-  (async function() {
-    try {
-      var recaptchaToken = '';
-      if (typeof grecaptcha !== 'undefined') {
-        recaptchaToken = await new Promise(function(resolve) {
-          grecaptcha.ready(function() {
-            grecaptcha.execute('6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM', {action:'payment'}).then(resolve).catch(function(){ resolve(''); });
-          });
-        });
+
+  // Create payment intent — reCAPTCHA optional, never blocks payment
+  function createIntent(token) {
+    fetch('/api/create-payment-intent',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name, email, recaptchaToken: token||''})
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (d.clientSecret) {
+        paymentIntentSecret = d.clientSecret;
+        payBtn.disabled = false;
+        payBtn.textContent = 'Pay £6.99';
+      } else {
+        payBtn.disabled = false;
+        payBtn.textContent = 'Pay £6.99';
+        setMsg('payStatus', 'Payment setup failed. Please go back and try again.', 'error');
       }
-      fetch('/api/create-payment-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,recaptchaToken})}).then(r=>r.json()).then(d=>{
-        paymentIntentSecret=d.clientSecret;
-        document.getElementById('payBtn').disabled=false;
+    }).catch(function() {
+      payBtn.disabled = false;
+      payBtn.textContent = 'Pay £6.99';
+    });
+  }
+
+  try {
+    if (typeof grecaptcha !== 'undefined') {
+      grecaptcha.ready(function() {
+        grecaptcha.execute('6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM', {action:'payment'})
+          .then(function(token){ createIntent(token); })
+          .catch(function(){ createIntent(''); });
       });
-    } catch(e) {
-      fetch('/api/create-payment-intent',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,recaptchaToken:''})}).then(r=>r.json()).then(d=>{
-        paymentIntentSecret=d.clientSecret;
-        document.getElementById('payBtn').disabled=false;
-      });
+    } else {
+      createIntent('');
     }
-  })();
+  } catch(e) {
+    createIntent('');
+  }
 }
 
 async function doPayment(){
