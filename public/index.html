@@ -377,6 +377,14 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);
         </div>
       </div>
 
+      <!-- Consent checkbox -->
+      <div style="margin-bottom:14px;padding:12px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:var(--r-sm);">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;color:#166534;">
+          <input type="checkbox" id="photoConsent" style="margin-top:2px;width:16px;height:16px;accent-color:#166534;flex-shrink:0;"/>
+          <span>I consent to my photo being processed for this order only. My photo will be automatically deleted after delivery. <a href="/privacy.html" target="_blank" style="color:#166534;font-weight:600;">Privacy Policy</a></span>
+        </label>
+      </div>
+
       <div class="upload-area" id="uploadArea">
         <input type="file" id="photoFile" accept="image/*" style="display:none;"/>
         <input type="file" id="photoFileCamera" accept="image/*" capture="environment" style="display:none;"/>
@@ -448,6 +456,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);
         <div class="rt-step" id="pt4"><div class="rt-icon">🎉</div><div style="flex:1"><div class="rt-label">Order complete</div><div class="rt-sub">Check your inbox!</div></div><span class="rt-badge pending" id="pt4-badge">Waiting</span></div>
       </div>
       <div class="status" id="payStatus"></div>
+      <!-- Terms checkbox -->
+      <div style="margin-bottom:14px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:var(--r-sm);">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;color:#1d4ed8;">
+          <input type="checkbox" id="termsConsent" onchange="togglePayBtn()" style="margin-top:2px;width:16px;height:16px;accent-color:#1d4ed8;flex-shrink:0;"/>
+          <span>I agree to the <a href="/terms.html" target="_blank" style="color:#1d4ed8;font-weight:600;">Terms &amp; Conditions</a> and <a href="/privacy.html" target="_blank" style="color:#1d4ed8;font-weight:600;">Privacy Policy</a>. I understand my photo will be deleted after delivery.</span>
+        </label>
+      </div>
       <div class="nav-row"><button class="btn btn-ghost" id="backBtn" onclick="goTo(3)">← Back</button><button class="btn btn-navy" id="payBtn" onclick="doPayment()" disabled>Pay £6.99</button></div>
     </div>
   </div>
@@ -756,6 +771,29 @@ function rtSet(id,state,badgeText){
 }
 
 // ── Photo upload ──────────────────────────────────────────
+// ── Consent validation ────────────────────────────────────
+function togglePayBtn() {
+  var terms = document.getElementById('termsConsent');
+  var payBtn = document.getElementById('payBtn');
+  if (terms && terms.checked && paymentIntentSecret) {
+    payBtn.disabled = false;
+    payBtn.textContent = 'Pay £6.99';
+  }
+}
+
+// Block upload if consent not given
+document.getElementById('photoFile').addEventListener('click', function(e) {
+  if (!document.getElementById('photoConsent').checked) {
+    e.preventDefault();
+    setMsg('photoStatus', 'Please tick the consent box above before uploading your photo.', 'error');
+  }
+});
+document.getElementById('photoFileCamera').addEventListener('click', function(e) {
+  if (!document.getElementById('photoConsent').checked) {
+    e.preventDefault();
+    setMsg('photoStatus', 'Please tick the consent box above before uploading your photo.', 'error');
+  }
+});
 document.getElementById('photoFile').addEventListener('change',e=>{if(e.target.files[0])doPhoto(e.target.files[0]);});
 document.getElementById('photoFileCamera').addEventListener('change',e=>{if(e.target.files[0])doPhoto(e.target.files[0]);});
 document.getElementById('uploadArea').addEventListener('dragover',e=>{e.preventDefault();document.getElementById('uploadArea').classList.add('drag');});
@@ -778,16 +816,16 @@ function initCropEditor(file) {
     var img = new Image();
     img.onload = function() {
       var vp = cropState.vpSize;
-      // Base zoom fills the viewport
-      var baseZoom = Math.max(vp / img.naturalWidth, vp / img.naturalHeight);
+      // Fit entire image inside viewport (show whole face)
+      var baseZoom = Math.min(vp / img.naturalWidth, vp / img.naturalHeight);
       cropState.img      = img;
       cropState.rotation = 0;
       cropState.baseZoom = baseZoom;
       cropState.zoom     = baseZoom;
-      // Centre
+      // Centre image in viewport
       cropState.x = (vp - img.naturalWidth  * baseZoom) / 2;
       cropState.y = (vp - img.naturalHeight * baseZoom) / 2;
-      // Slider: 100 = base zoom, range 100–300
+      // Slider starts at 100 = fit, max 300 = 3x zoom
       document.getElementById('zoomSlider').min   = 100;
       document.getElementById('zoomSlider').max   = 300;
       document.getElementById('zoomSlider').value = 100;
@@ -985,6 +1023,13 @@ async function processPhoto(file) {
 
     // ── Steps 1-2: remove.bg ──
     const fd=new FormData();fd.append('photo',file);
+    // Add reCAPTCHA token if available
+    if(typeof grecaptcha !== 'undefined') {
+      try {
+        const token = await new Promise(resolve => grecaptcha.ready(() => grecaptcha.execute('6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM',{action:'upload'}).then(resolve).catch(()=>resolve(''))));
+        fd.append('recaptchaToken', token);
+      } catch(e) { fd.append('recaptchaToken',''); }
+    }
     const res=await fetch('/api/remove-bg',{method:'POST',body:fd});
     rtSet('rt1','done','Done');rtSet('rt2','active','Processing…');
     if(!res.ok){const e=await res.json();throw new Error(e.error||'Remove BG failed');}
@@ -1067,41 +1112,28 @@ function s3(){
     cardEl.addEventListener('change',e=>{document.getElementById('card-errors').textContent=e.error?e.error.message:'';});
   }
 
-  // Create payment intent — reCAPTCHA optional, never blocks payment
-  function createIntent(token) {
-    fetch('/api/create-payment-intent',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({name, email, recaptchaToken: token||''})
-    }).then(function(r){ return r.json(); }).then(function(d){
-      if (d.clientSecret) {
-        paymentIntentSecret = d.clientSecret;
-        payBtn.disabled = false;
-        payBtn.textContent = 'Pay £6.99';
-      } else {
-        payBtn.disabled = false;
-        payBtn.textContent = 'Pay £6.99';
-        setMsg('payStatus', 'Payment setup failed. Please go back and try again.', 'error');
-      }
-    }).catch(function() {
+  // Create payment intent directly
+  fetch('/api/create-payment-intent',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:name, email:email, recaptchaToken:''})
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(d.clientSecret){
+      paymentIntentSecret = d.clientSecret;
+      payBtn.textContent = 'Pay £6.99';
+      // Only enable if terms checkbox is ticked
+      var terms = document.getElementById('termsConsent');
+      if (terms && terms.checked) payBtn.disabled = false;
+    } else {
       payBtn.disabled = false;
       payBtn.textContent = 'Pay £6.99';
-    });
-  }
-
-  try {
-    if (typeof grecaptcha !== 'undefined') {
-      grecaptcha.ready(function() {
-        grecaptcha.execute('6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM', {action:'payment'})
-          .then(function(token){ createIntent(token); })
-          .catch(function(){ createIntent(''); });
-      });
-    } else {
-      createIntent('');
+      console.error('Payment intent error:', d);
     }
-  } catch(e) {
-    createIntent('');
-  }
+  }).catch(function(err){
+    console.error('Payment intent fetch error:', err);
+    payBtn.disabled = false;
+    payBtn.textContent = 'Pay £6.99';
+  });
 }
 
 async function doPayment(){
