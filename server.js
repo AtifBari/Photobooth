@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-// ── Sentry (must be first) ────────────────────────────────
+// ── Sentry (must be first) ────────────────────────────────-
 const Sentry = require('@sentry/node');
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
