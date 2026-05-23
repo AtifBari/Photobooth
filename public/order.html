@@ -1,0 +1,1853 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<title>Photobooth App</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://js.stripe.com/v3/"></script>
+<script type="module">
+import { AutoModel, AutoProcessor, RawImage, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/dist/transformers.min.js';
+window._transformers = { AutoModel, AutoProcessor, RawImage, env };
+window._transformersReady = true;
+console.log('Transformers.js loaded ✅');
+</script>
+<script src="https://www.google.com/recaptcha/api.js?render=6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --navy:#0d1b2e;--navy2:#122038;--navy3:#1a2d4a;
+  --platinum:#c8d0da;--platinum2:#dde3ea;--platinum3:#eef1f4;
+  --silver:#8a9bb0;--white:#ffffff;--cream:#f8f9fb;
+  --text-light:#ffffff;--text-dim:#7a8fa6;
+  --green:#34d399;--green-bg:rgba(52,211,153,0.08);
+  --red:#f87171;--red-bg:rgba(248,113,113,0.08);
+  --r:16px;--r-sm:10px;--r-lg:20px;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);min-height:100vh;padding-bottom:4rem;}
+.header{background:var(--navy);padding:1.1rem 1.75rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.logo-wrap{display:flex;align-items:center;gap:14px;}
+.logo-mark{width:40px;height:40px;border:1px solid rgba(200,208,218,0.25);border-radius:10px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.05);}
+.logo-mark svg{width:20px;height:20px;color:var(--platinum);}
+.logo-text-name{font-family:'DM Serif Display',serif;font-size:19px;color:var(--white);}
+.logo-text-tag{font-size:10px;color:var(--text-dim);margin-top:1px;letter-spacing:0.8px;text-transform:uppercase;font-weight:300;}
+.header-price-amt{font-family:'DM Serif Display',serif;font-size:22px;color:var(--white);text-align:right;}
+.header-price-lbl{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;font-weight:300;text-align:right;}
+.stepper{background:var(--navy2);border-bottom:1px solid rgba(200,208,218,0.08);padding:1rem 1.5rem;}
+.stepper-inner{max-width:560px;margin:0 auto;display:flex;align-items:flex-start;justify-content:space-between;position:relative;}
+.stepper-inner::before{content:'';position:absolute;top:16px;left:10%;right:10%;height:1px;background:rgba(200,208,218,0.1);z-index:0;}
+.step-item{display:flex;flex-direction:column;align-items:center;gap:6px;flex:1;position:relative;z-index:1;}
+.step-dot{width:32px;height:32px;border-radius:50%;border:1px solid rgba(200,208,218,0.15);background:rgba(255,255,255,0.03);display:flex;align-items:center;justify-content:center;transition:all 0.3s;}
+.step-dot svg{width:13px;height:13px;color:var(--text-dim);}
+.step-lbl{font-size:10px;color:var(--text-dim);text-align:center;letter-spacing:0.3px;}
+.step-item.active .step-dot{border-color:var(--platinum2);background:rgba(200,208,218,0.1);}
+.step-item.active .step-dot svg,.step-item.active .step-lbl{color:var(--platinum2);}
+.step-item.done .step-dot{border-color:var(--green);background:var(--green-bg);}
+.step-item.done .step-dot svg,.step-item.done .step-lbl{color:var(--green);}
+.main{max-width:560px;margin:2rem auto;padding:0 1rem;}
+.card{background:var(--white);border:1px solid var(--platinum3);border-radius:var(--r-lg);overflow:hidden;box-shadow:0 1px 3px rgba(13,27,46,0.06),0 8px 32px rgba(13,27,46,0.08);}
+.card-head{background:var(--navy);padding:1.4rem 1.75rem;}
+.card-head-eyebrow{font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);margin-bottom:6px;}
+.card-head h2{font-family:'DM Serif Display',serif;font-size:22px;color:var(--white);font-weight:400;}
+.card-head p{font-size:12px;color:var(--text-dim);margin-top:4px;font-weight:300;}
+.card-body{padding:1.75rem;}
+.field{margin-bottom:1.3rem;}
+.field label{display:block;font-size:11px;font-weight:500;color:var(--silver);margin-bottom:7px;text-transform:uppercase;letter-spacing:0.8px;}
+.req{color:#4a90c4;}
+.field input,.field select{width:100%;padding:12px 16px;border:1px solid var(--platinum2);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:14px;color:var(--navy);background:var(--white);outline:none;transition:border-color 0.2s,box-shadow 0.2s;}
+.field input::placeholder{color:var(--platinum);}
+.field input:focus,.field select:focus{border-color:var(--navy3);box-shadow:0 0 0 3px rgba(13,27,46,0.06);}
+.field input.err,.field select.err{border-color:var(--red);}
+.field-err{font-size:11px;color:var(--red);margin-top:5px;display:none;}
+.field-err.show{display:block;}
+.field-hint{font-size:11px;color:var(--silver);margin-top:5px;font-weight:300;}
+.phone-row{display:flex;gap:8px;}
+.phone-row select{width:130px;flex-shrink:0;}
+.phone-row input{flex:1;}
+
+/* Country + City filter */
+.filter-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1rem;}
+
+.btn{padding:12px 28px;border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all 0.2s;}
+.btn:active{transform:scale(0.98);}
+.btn:disabled{opacity:0.4;cursor:not-allowed;}
+.btn-navy{background:var(--navy);color:var(--white);box-shadow:0 2px 8px rgba(13,27,46,0.2);}
+.btn-navy:hover:not(:disabled){background:var(--navy3);transform:translateY(-1px);}
+.btn-ghost{background:transparent;border:1px solid var(--platinum2);color:var(--silver);}
+.btn-ghost:hover{background:var(--cream);}
+.nav-row{display:flex;justify-content:space-between;align-items:center;margin-top:1.75rem;padding-top:1.5rem;border-top:1px solid var(--platinum3);}
+.upload-area{border:1.5px dashed var(--platinum2);border-radius:var(--r);padding:3rem 2rem;text-align:center;cursor:pointer;background:var(--cream);transition:all 0.2s;position:relative;}
+.upload-area:hover,.upload-area.drag{border-color:var(--navy3);background:rgba(13,27,46,0.02);}
+.upload-area input{display:none;}
+.upload-ring{width:68px;height:68px;border-radius:50%;border:1px solid var(--platinum2);background:var(--white);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;box-shadow:0 2px 8px rgba(13,27,46,0.06);}
+.upload-ring svg{width:26px;height:26px;color:var(--navy3);}
+.upload-area h3{font-family:'DM Serif Display',serif;font-size:18px;color:var(--navy);font-weight:400;margin-bottom:6px;}
+.upload-area p{font-size:13px;color:var(--silver);font-weight:300;}
+.upload-cta{display:inline-block;margin-top:18px;background:var(--navy);color:var(--white);font-size:13px;font-weight:500;padding:10px 28px;border-radius:99px;pointer-events:auto;cursor:pointer;}
+/* ── Crop editor ─────────────────────────────────────── */
+.crop-editor{display:none;margin-bottom:16px;}
+.crop-editor.show{display:block;}
+.crop-viewport{
+  width:100%;max-width:300px;height:300px;
+  border-radius:var(--r);overflow:hidden;
+  position:relative;background:#1a1a1a;margin:0 auto 12px;
+  cursor:grab;touch-action:none;
+  border:2px solid var(--navy);
+}
+.crop-viewport.dragging{cursor:grabbing;}
+.crop-viewport canvas{position:absolute;top:0;left:0;width:100%;height:100%;}
+.crop-guide{
+  position:absolute;top:8%;left:18%;width:64%;height:72%;
+  border:2px dashed rgba(255,255,255,0.35);
+  border-radius:50%;pointer-events:none;
+}
+.crop-hint{font-size:11px;color:var(--silver);text-align:center;margin-bottom:10px;}
+.crop-controls{display:flex;align-items:center;gap:10px;margin:0 auto 8px;max-width:300px;}
+.crop-controls label{font-size:11px;color:var(--silver);white-space:nowrap;}
+.crop-slider{flex:1;accent-color:var(--navy);cursor:pointer;height:4px;}
+.crop-rotate-btns{display:flex;gap:8px;justify-content:center;margin-bottom:10px;}
+.crop-btn{padding:6px 16px;border-radius:var(--r-sm);border:1px solid var(--platinum2);background:var(--white);font-size:12px;font-weight:500;color:var(--navy);cursor:pointer;}
+.crop-btn:hover{background:var(--navy);color:var(--white);}
+
+/* ── Realtime tracker ────────────────────────────────── */
+.realtime-tracker.show{display:block;}
+.rt-title{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.8px;color:var(--silver);margin-bottom:12px;}
+.rt-step{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:var(--r-sm);background:var(--cream);border:1px solid var(--platinum3);margin-bottom:6px;transition:all 0.3s;}
+.rt-step.active{background:#eff6ff;border-color:#bfdbfe;}
+.rt-step.done{background:var(--green-bg);border-color:rgba(52,211,153,0.2);}
+.rt-step.error{background:var(--red-bg);border-color:rgba(248,113,113,0.2);}
+.rt-icon{width:28px;height:28px;border-radius:50%;background:var(--platinum3);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:13px;}
+.rt-step.active .rt-icon{background:#dbeafe;}
+.rt-step.done .rt-icon{background:var(--green-bg);}
+.rt-step.error .rt-icon{background:var(--red-bg);}
+.rt-label{font-size:13px;font-weight:500;color:var(--navy);flex:1;}
+.rt-sub{font-size:11px;color:var(--silver);margin-top:1px;font-weight:300;}
+.rt-badge{font-size:11px;font-weight:500;padding:3px 8px;border-radius:99px;}
+.rt-badge.pending{background:var(--platinum3);color:var(--silver);}
+.rt-badge.active{background:#dbeafe;color:#1d4ed8;}
+.rt-badge.done{background:var(--green-bg);color:#059669;}
+.rt-badge.error{background:var(--red-bg);color:var(--red);}
+.spinner-sm{display:inline-block;width:11px;height:11px;border:1.5px solid transparent;border-top-color:currentColor;border-radius:50%;animation:spin 0.7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.photo-result{margin-top:1.5rem;display:none;}
+.photo-result.show{display:block;}
+.ok-badge{display:flex;align-items:center;gap:9px;padding:11px 16px;background:var(--green-bg);border:1px solid rgba(52,211,153,0.15);border-radius:var(--r-sm);font-size:13px;color:#059669;font-weight:500;margin-bottom:16px;}
+.photo-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
+.photo-box{text-align:center;}
+.photo-box-lbl{font-size:10px;font-weight:500;text-transform:uppercase;letter-spacing:0.8px;color:var(--silver);margin-bottom:7px;}
+.photo-box canvas{width:100%;border-radius:8px;border:1px solid var(--platinum2);background:white;display:block;}
+.passport-wrap{aspect-ratio:35/45;border:1px solid var(--platinum2);border-radius:8px;overflow:hidden;background:white;display:flex;align-items:center;justify-content:center;}
+.passport-wrap canvas{width:100%;height:100%;}
+.strip-row{background:var(--cream);border:1px solid var(--platinum2);border-radius:8px;padding:10px;display:flex;gap:6px;justify-content:center;margin-bottom:6px;}
+.strip-row canvas{flex:1;max-width:70px;border:0.5px dashed var(--platinum2);border-radius:3px;}
+.strip-lbl{font-size:11px;color:var(--silver);text-align:center;margin-bottom:14px;font-weight:300;}
+.summary-box{background:var(--cream);border:1px solid var(--platinum3);border-radius:var(--r-sm);overflow:hidden;margin-bottom:1.5rem;}
+.summary-head{background:var(--navy);padding:12px 18px;font-size:11px;font-weight:500;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;}
+.summary-body{padding:4px 18px 14px;}
+.sum-row{display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--platinum3);}
+.sum-row:last-of-type{border-bottom:none;}
+.sum-lbl{color:var(--silver);font-weight:300;}
+.sum-val{color:var(--navy);font-weight:500;text-align:right;max-width:55%;}
+.sum-total-row{display:flex;justify-content:space-between;padding:14px 18px;border-top:1px solid var(--platinum2);background:var(--white);}
+.sum-total-lbl{font-family:'DM Serif Display',serif;font-size:16px;color:var(--navy);}
+.sum-total-val{font-family:'DM Serif Display',serif;font-size:20px;color:var(--navy);}
+#card-element{padding:12px 16px;border:1px solid var(--platinum2);border-radius:var(--r-sm);background:var(--white);}
+#card-element.StripeElement--focus{border-color:var(--navy3);}
+#card-errors{font-size:12px;color:var(--red);margin-top:6px;min-height:18px;}
+.secure-row{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--silver);margin-top:8px;font-weight:300;}
+.secure-row svg{width:12px;height:12px;color:var(--green);}
+.status{padding:12px 16px;border-radius:var(--r-sm);font-size:13px;line-height:1.6;display:none;margin-bottom:14px;}
+.status.show{display:block;}
+.status.error{background:var(--red-bg);color:var(--red);border:1px solid rgba(248,113,113,0.15);}
+.status.info{background:rgba(74,144,196,0.06);color:#4a90c4;border:1px solid rgba(74,144,196,0.15);}
+.spinner{display:inline-block;width:12px;height:12px;border:1.5px solid transparent;border-top-color:currentColor;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:7px;}
+.success-wrap{padding:3rem 2rem;text-align:center;}
+.success-emblem{width:72px;height:72px;border-radius:50%;background:var(--green-bg);border:1px solid rgba(52,211,153,0.2);display:flex;align-items:center;justify-content:center;margin:0 auto 1.5rem;}
+.success-emblem svg{width:30px;height:30px;color:var(--green);}
+.success-wrap h2{font-family:'DM Serif Display',serif;font-size:28px;font-weight:400;color:var(--navy);margin-bottom:10px;}
+.success-wrap .sub{font-size:14px;color:var(--silver);line-height:1.7;max-width:360px;margin:0 auto;font-weight:300;}
+.order-tag{font-size:12px;font-weight:500;background:var(--cream);border:1px solid var(--platinum2);border-radius:var(--r-sm);padding:10px 20px;display:inline-block;margin:1.1rem 0;letter-spacing:2px;color:var(--navy3);}
+.what-next{background:var(--cream);border:1px solid var(--platinum2);border-radius:var(--r-sm);padding:16px 18px;text-align:left;margin:1.1rem 0 1.5rem;font-size:13px;color:var(--silver);line-height:1.7;font-weight:300;}
+.what-next strong{display:block;color:var(--navy);font-weight:500;margin-bottom:4px;font-size:12px;text-transform:uppercase;letter-spacing:0.8px;}
+.dl-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+@media(max-width:480px){.card-body{padding:1.25rem;}.step-lbl{font-size:9px;}.filter-row{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo-wrap">
+    <div class="logo-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+    </div>
+    <div>
+      <div class="logo-text-name">Photobooth App</div>
+      <div class="logo-text-tag">Professional photos · instant delivery</div>
+    </div>
+  </div>
+  <div>
+    <div class="header-price-amt">£6.99</div>
+    <div class="header-price-lbl">per photo</div>
+  </div>
+</div>
+
+<div class="stepper">
+  <div class="stepper-inner">
+    <div class="step-item active" id="si1"><div class="step-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div><span class="step-lbl">Destination</span></div>
+    <div class="step-item" id="si2"><div class="step-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><span class="step-lbl">Your Details</span></div>
+    <div class="step-item" id="si3"><div class="step-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg></div><span class="step-lbl">Upload Photo</span></div>
+    <div class="step-item" id="si4"><div class="step-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></div><span class="step-lbl">Payment</span></div>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- STEP 1 -->
+  <div class="card" id="page1">
+    <div class="card-head">
+      <div class="card-head-eyebrow">Step 1 of 4</div>
+      <h2>Destination</h2>
+      <p>Select your country, application centre and photo type</p>
+    </div>
+    <div class="card-body">
+
+      <div class="filter-row">
+        <div class="field" style="margin-bottom:0">
+          <label>Country <span class="req">*</span></label>
+          <select id="countryFilter" onchange="filterCentres()" title="Step 1: Select your country first">
+            <option value="">All countries…</option>
+          </select>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <label>City <span class="req">*</span></label>
+          <select id="cityFilter" onchange="filterCentresByCity()">
+            <option value="">All cities…</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Application Centre <span class="req">*</span></label>
+        <select id="appCentre" onchange="filterVisaByCentre(this.value)">
+          <option value="">Select country &amp; city first…</option>
+        </select>
+        <div id="centre-info" style="display:none;font-size:12px;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:8px 12px;margin-top:6px;"></div>
+        <div class="field-err" id="e-centre">Please select an application centre.</div>
+      </div>
+
+      <div class="field">
+        <label>Visa Category <span class="req">*</span></label>
+        <select id="visaCat" onchange="updatePurpose()" size="1">
+          <option value="">Select visa category…</option>
+          <optgroup label="India">
+            <option value="indian-passport">🇮🇳 Indian Passport / PCC / Surrender</option>
+            <option value="india-visa">🇮🇳 India e-Visa / OCI Card</option>
+          </optgroup>
+          <optgroup label="Schengen / Europe">
+            <option value="schengen">🇪🇺 Schengen Visa (EU Countries)</option>
+            <option value="france-visa">🇫🇷 France Visa</option>
+            <option value="germany-visa">🇩🇪 Germany Visa</option>
+            <option value="italy-visa">🇮🇹 Italy Visa</option>
+            <option value="spain-visa">🇪🇸 Spain Visa</option>
+            <option value="netherlands-visa">🇳🇱 Netherlands Visa</option>
+            <option value="sweden-visa">🇸🇪 Sweden Visa</option>
+            <option value="switzerland-visa">🇨🇭 Switzerland Visa</option>
+          </optgroup>
+          <optgroup label="English Speaking Countries">
+            <option value="uk-visa">🇬🇧 UK Visa</option>
+            <option value="us-visa">🇺🇸 US Visa (B1/B2/F1/H1B)</option>
+            <option value="canada-visa">🇨🇦 Canada Visa / PR / ETA</option>
+            <option value="australia-visa">🇦🇺 Australia Visa / ETA</option>
+            <option value="newzealand-visa">🇳🇿 New Zealand Visa</option>
+            <option value="ireland-visa">🇮🇪 Ireland Visa</option>
+          </optgroup>
+          <optgroup label="Middle East">
+            <option value="uae-visa">🇦🇪 UAE Visa / Emirates ID</option>
+            <option value="saudi-visa">🇸🇦 Saudi Arabia Visa / Iqama</option>
+            <option value="qatar-visa">🇶🇦 Qatar Visa / QID</option>
+            <option value="kuwait-visa">🇰🇼 Kuwait Visa / Civil ID</option>
+            <option value="bahrain-visa">🇧🇭 Bahrain Visa / CPR</option>
+            <option value="oman-visa">🇴🇲 Oman Visa</option>
+          </optgroup>
+          <optgroup label="Asia">
+            <option value="china-visa">🇨🇳 China Visa</option>
+            <option value="japan-visa">🇯🇵 Japan Visa</option>
+            <option value="singapore-visa">🇸🇬 Singapore Visa / PR</option>
+            <option value="malaysia-visa">🇲🇾 Malaysia Visa / MM2H</option>
+            <option value="thailand-visa">🇹🇭 Thailand Visa / Elite</option>
+            <option value="sri-lanka-visa">🇱🇰 Sri Lanka e-Visa / ETA</option>
+            <option value="bangladesh-visa">🇧🇩 Bangladesh Visa / NID</option>
+          </optgroup>
+          <optgroup label="Africa">
+            <option value="nigeria-visa">🇳🇬 Nigeria Visa / NIN</option>
+            <option value="ghana-visa">🇬🇭 Ghana Visa / EC</option>
+            <option value="kenya-visa">🇰🇪 Kenya e-Visa</option>
+            <option value="southafrica-visa">🇿🇦 South Africa Visa</option>
+            <option value="ethiopia-visa">🇪🇹 Ethiopia Visa</option>
+          </optgroup>
+          <optgroup label="Passport Renewal">
+            <option value="uk-passport">🇬🇧 UK Passport / Renewal</option>
+            <option value="us-passport">🇺🇸 US Passport / Renewal</option>
+            <option value="eu-passport">🇪🇺 EU Passport / Renewal</option>
+            <option value="pakistani-passport">🇵🇰 Pakistani Passport / NICOP / POC</option>
+            <option value="bangladeshi-passport">🇧🇩 Bangladeshi Passport</option>
+            <option value="sri-lankan-passport">🇱🇰 Sri Lankan Passport</option>
+            <option value="nigerian-passport">🇳🇬 Nigerian Passport</option>
+            <option value="ghanaian-passport">🇬🇭 Ghanaian Passport</option>
+            <option value="other-passport">🌍 Other Nationality Passport</option>
+          </optgroup>
+          <optgroup label="Other Documents">
+            <option value="driving">🚗 Driving Licence</option>
+            <option value="id-card">🪪 National ID Card / Biometric</option>
+            <option value="brp">📋 BRP / Residence Permit</option>
+            <option value="misc">📄 Miscellaneous / Other</option>
+          </optgroup>
+        </select>
+        <div class="field-err" id="e-visa">Please select a visa category.</div>
+      </div>
+
+      <div class="field">
+        <label>Photo Purpose <span class="req">*</span></label>
+        <select id="photoPurpose"><option value="">Select photo purpose…</option></select>
+        <div class="field-err" id="e-purpose">Please select a photo purpose.</div>
+      </div>
+
+      <div class="nav-row"><span></span><button class="btn btn-navy" onclick="s1()">Continue →</button></div>
+    </div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="card" id="page2" style="display:none;">
+    <div class="card-head">
+      <div class="card-head-eyebrow">Step 2 of 4</div>
+      <h2>Your Details</h2>
+      <p>Enter your personal information</p>
+    </div>
+    <div class="card-body">
+      <div class="field"><label>Full Name <span class="req">*</span></label><input type="text" id="fullName" placeholder="Enter your full name"
+            onblur="if(this.value.trim().length<2){document.getElementById('e-name').classList.add('show');this.classList.add('err');}else{document.getElementById('e-name').classList.remove('show');this.classList.remove('err');}"/><div class="field-err" id="e-name">Please enter your full name.</div></div>
+      <div class="field"><label>Email Address <span class="req">*</span></label><input type="email" id="email" placeholder="your@email.com"
+            onblur="var v=this.value.trim();var ok=v&&v.includes('@')&&v.includes('.');document.getElementById('e-email').classList.toggle('show',!ok);this.classList.toggle('err',!ok);"/><div class="field-err" id="e-email">Please enter a valid email.</div></div>
+      <div class="field"><label>Confirm Email <span class="req">*</span></label><input type="email" id="emailConfirm" placeholder="Confirm your email"
+            onblur="var match=this.value===document.getElementById('email').value;document.getElementById('e-email2').classList.toggle('show',!match);this.classList.toggle('err',!match);"/><div class="field-err" id="e-email2">Emails do not match.</div></div>
+      <div class="field">
+        <label>Phone Number <span class="req">*</span></label>
+        <div class="phone-row">
+          <select id="dialCode">
+            <option value="+44">🇬🇧 +44</option><option value="+1">🇺🇸 +1</option>
+            <option value="+91">🇮🇳 +91</option><option value="+92">🇵🇰 +92</option>
+            <option value="+880">🇧🇩 +880</option><option value="+351">🇵🇹 +351</option>
+            <option value="+971">🇦🇪 +971</option><option value="+966">🇸🇦 +966</option>
+            <option value="+974">🇶🇦 +974</option><option value="+965">🇰🇼 +965</option>
+            <option value="+973">🇧🇭 +973</option><option value="+968">🇴🇲 +968</option>
+            <option value="+61">🇦🇺 +61</option><option value="+1-CA">🇨🇦 +1</option>
+            <option value="+33">🇫🇷 +33</option><option value="+49">🇩🇪 +49</option>
+            <option value="+39">🇮🇹 +39</option><option value="+34">🇪🇸 +34</option>
+            <option value="+31">🇳🇱 +31</option><option value="+46">🇸🇪 +46</option>
+            <option value="+41">🇨🇭 +41</option><option value="+353">🇮🇪 +353</option>
+            <option value="+64">🇳🇿 +64</option><option value="+65">🇸🇬 +65</option>
+            <option value="+60">🇲🇾 +60</option><option value="+66">🇹🇭 +66</option>
+            <option value="+94">🇱🇰 +94</option><option value="+234">🇳🇬 +234</option>
+            <option value="+233">🇬🇭 +233</option><option value="+254">🇰🇪 +254</option>
+            <option value="+27">🇿🇦 +27</option><option value="+86">🇨🇳 +86</option>
+            <option value="+81">🇯🇵 +81</option>
+          </select>
+          <input type="tel" id="phone" placeholder="e.g. 7911 123456" 
+            oninput="formatPhone(this)"
+            style="flex:1;"/>
+        </div>
+        <div class="field-err" id="e-phone">Please enter a valid phone number.</div>
+      </div>
+      <div class="field"><label>Government Reference <span style="text-transform:none;letter-spacing:0;font-weight:300;">(optional)</span></label><input type="text" id="govRef" placeholder="Visa application number or reference"/><div class="field-hint">Enter your visa application number or government reference if applicable.</div></div>
+      <div class="nav-row"><button class="btn btn-ghost" onclick="goTo(1)">← Back</button><button class="btn btn-navy" onclick="s2()">Continue →</button></div>
+    </div>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="card" id="page3" style="display:none;">
+    <div class="card-head">
+      <div class="card-head-eyebrow">Step 3 of 4</div>
+      <h2>Upload Photo</h2>
+      <p>Background removed and formatted automatically in real time</p>
+    </div>
+    <div class="card-body">
+
+      <!-- Pre-photo checklist -->
+      <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:var(--r-sm);padding:14px 16px;margin-bottom:16px;">
+        <div style="font-size:12px;font-weight:600;color:#92400e;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">⚠️ Before you take your photo — please check:</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">👓</span> Remove glasses</div>
+          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">🧢</span> Remove hats/caps</div>
+          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">😐</span> Neutral expression</div>
+          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">👁️</span> Eyes open &amp; visible</div>
+          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">💡</span> Good lighting</div>
+          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">📷</span> Face camera directly</div>
+          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">🏠</span> Plain background</div>
+          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">😶</span> Mouth closed</div>
+        </div>
+      </div>
+
+      <!-- Consent checkbox -->
+      <div style="margin-bottom:14px;padding:12px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:var(--r-sm);">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;color:#166534;">
+          <input type="checkbox" id="photoConsent" style="margin-top:2px;width:16px;height:16px;accent-color:#166534;flex-shrink:0;"/>
+          <span>I consent to my photo being processed for this order only. My photo will be automatically deleted after delivery. <a href="/privacy.html" target="_blank" style="color:#166534;font-weight:600;">Privacy Policy</a></span>
+        </label>
+      </div>
+
+      <div class="upload-area" id="uploadArea">
+        <input type="file" id="photoFile" accept="image/*" style="display:none;"/>
+        <input type="file" id="photoFileCamera" accept="image/*" style="display:none;"/>
+        <div class="upload-ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
+        <h3>Take or choose your photo</h3>
+        <p>JPEG or PNG · Face clearly visible · Max 10MB</p>
+        <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap;">
+          <label for="photoFile" class="upload-cta" style="cursor:pointer;display:inline-block;">📁 Choose from Gallery</label>
+          <label for="photoFileCamera" class="upload-cta" style="cursor:pointer;display:inline-block;background:var(--navy3);" id="takePhotoLabel">📷 Take Photo</label>
+        </div>
+      </div>
+      <div class="status" id="photoStatus"></div>
+
+      <!-- Crop Editor -->
+      <div class="crop-editor" id="cropEditor">
+        <p class="crop-hint">✋ Drag to reposition · Pinch or scroll to zoom · Centre your face in the oval</p>
+        <div class="crop-viewport" id="cropViewport">
+          <canvas id="cropCanvas"></canvas>
+          <div class="crop-guide"></div>
+        </div>
+        <div class="crop-controls">
+          <label>🔍 Zoom</label>
+          <input type="range" class="crop-slider" id="zoomSlider" min="50" max="300" value="100"/>
+        </div>
+        <div class="crop-rotate-btns">
+          <button class="crop-btn" onclick="rotateCrop(-90)">↺ Rotate Left</button>
+          <button class="crop-btn" onclick="rotateCrop(90)">↻ Rotate Right</button>
+        </div>
+        <button class="crop-confirm" onclick="confirmCrop()">✓ Use This Photo →</button>
+      </div>
+      <div class="realtime-tracker" id="rtTracker">
+        <div class="rt-title">Processing your photo</div>
+        <div class="rt-step" id="rt1"><div class="rt-icon">📤</div><div style="flex:1"><div class="rt-label">Uploading photo</div><div class="rt-sub">Sending to processing server</div></div><span class="rt-badge pending" id="rt1-badge">Waiting</span></div>
+        <div class="rt-step" id="rt2"><div class="rt-icon">✂️</div><div style="flex:1"><div class="rt-label">Removing background</div><div class="rt-sub">AI-powered background removal</div></div><span class="rt-badge pending" id="rt2-badge">Waiting</span></div>
+        <div class="rt-step" id="rt3"><div class="rt-icon">🖼️</div><div style="flex:1"><div class="rt-label">Formatting passport photo</div><div class="rt-sub">Applying white background &amp; sizing</div></div><span class="rt-badge pending" id="rt3-badge">Waiting</span></div>
+        <div class="rt-step" id="rt4"><div class="rt-icon">✅</div><div style="flex:1"><div class="rt-label">Photo ready</div><div class="rt-sub">Your photo is formatted and ready</div></div><span class="rt-badge pending" id="rt4-badge">Waiting</span></div>
+      </div>
+      <div class="photo-result" id="photoResult">
+        <div class="ok-badge"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Photo processed — white background applied</div>
+        <div class="photo-grid">
+          <div class="photo-box"><div class="photo-box-lbl">Background removed</div><canvas id="removedCanvas"></canvas></div>
+          <div class="photo-box"><div class="photo-box-lbl">Passport photo</div><div class="passport-wrap"><canvas id="passportCanvas"></canvas></div></div>
+        </div>
+        <div class="strip-row" id="stripRow"></div>
+        <div class="strip-lbl">6×4 print — 4 photos in a 2×2 grid, ready to cut</div>
+      </div>
+      <!-- Service selector — shown after photo is processed -->
+      <div id="serviceSelector" style="display:none;margin:16px 0;padding:16px;background:var(--cream);border:2px solid var(--navy);border-radius:var(--r-sm);">
+        <p style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:12px;">📦 Choose your service:</p>
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:10px;padding:12px;border-radius:8px;border:2px solid var(--navy);background:white;transition:all 0.2s;" id="optDigitalLabel">
+          <input type="radio" name="printOption" id="printOption" value="digital" checked onchange="updatePrintOption()" style="margin-top:2px;accent-color:var(--navy);"/>
+          <div>
+            <div style="font-size:15px;font-weight:600;color:var(--navy);">📧 Digital Only — £6.99</div>
+            <div style="font-size:12px;color:var(--silver);margin-top:2px;">Photo emailed instantly · Print at home or any print shop</div>
+          </div>
+        </label>
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px;border-radius:8px;border:2px solid transparent;background:white;transition:all 0.2s;" id="optPrintLabel">
+          <input type="radio" name="printOption" value="print" onchange="updatePrintOption()" style="margin-top:2px;accent-color:var(--navy);"/>
+          <div>
+            <div style="font-size:15px;font-weight:600;color:var(--navy);">🖨️ Digital + Print — £9.99 <span style="background:#fef9c3;color:#854d0e;font-size:10px;padding:2px 6px;border-radius:99px;font-weight:600;">Lon-Wilson Kiosk</span></div>
+            <div style="font-size:12px;color:var(--silver);margin-top:2px;">Photo emailed + unique print code · Collect printed photos at our kiosk</div>
+          </div>
+        </label>
+      </div>
+
+      <div class="nav-row"><button class="btn btn-ghost" onclick="goTo(2)">← Back</button><button class="btn btn-navy" id="toPayBtn" onclick="s3()" disabled>Continue →</button></div>
+    </div>
+  </div>
+
+  <!-- STEP 4 -->
+  <div class="card" id="page4" style="display:none;">
+    <div class="card-head">
+      <div class="card-head-eyebrow">Step 4 of 4</div>
+      <h2>Payment</h2>
+      <p>Secure checkout — photo emailed immediately after payment</p>
+    </div>
+    <div class="card-body">
+      <div class="summary-box" id="orderSummary"></div>
+      <div class="field"><label>Card Details <span class="req">*</span></label><div id="card-element"></div><div id="card-errors"></div></div>
+      <div class="field"><label>Name on Card <span class="req">*</span></label><input type="text" id="cardName" placeholder="As it appears on your card"/></div>
+      <div class="secure-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Secured by Stripe · card details never stored · charged in GBP (£)</div>
+      <div class="realtime-tracker" id="payTracker">
+        <div class="rt-title">Processing your payment</div>
+        <div class="rt-step" id="pt1"><div class="rt-icon">💳</div><div style="flex:1"><div class="rt-label">Authorising card</div><div class="rt-sub">Verifying with your bank</div></div><span class="rt-badge pending" id="pt1-badge">Waiting</span></div>
+        <div class="rt-step" id="pt2"><div class="rt-icon">💰</div><div style="flex:1"><div class="rt-label">Processing payment</div><div class="rt-sub">Confirming £6.99 charge</div></div><span class="rt-badge pending" id="pt2-badge">Waiting</span></div>
+        <div class="rt-step" id="pt3"><div class="rt-icon">📧</div><div style="flex:1"><div class="rt-label">Sending photo by email</div><div class="rt-sub">Attaching passport photo to email</div></div><span class="rt-badge pending" id="pt3-badge">Waiting</span></div>
+        <div class="rt-step" id="pt4"><div class="rt-icon">🎉</div><div style="flex:1"><div class="rt-label">Order complete</div><div class="rt-sub">Check your inbox!</div></div><span class="rt-badge pending" id="pt4-badge">Waiting</span></div>
+      </div>
+      <div class="status" id="payStatus"></div>
+      <!-- Terms checkbox -->
+      <div style="margin-bottom:14px;padding:12px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:var(--r-sm);">
+        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;color:#1d4ed8;">
+          <input type="checkbox" id="termsConsent" onchange="togglePayBtn()" style="margin-top:2px;width:16px;height:16px;accent-color:#1d4ed8;flex-shrink:0;"/>
+          <span>I agree to the <a href="/terms.html" target="_blank" style="color:#1d4ed8;font-weight:600;">Terms &amp; Conditions</a> and <a href="/privacy.html" target="_blank" style="color:#1d4ed8;font-weight:600;">Privacy Policy</a>. I understand my photo will be deleted after delivery.</span>
+        </label>
+      </div>
+      <div class="nav-row"><button class="btn btn-ghost" id="backBtn" onclick="goTo(3)">← Back</button><button class="btn btn-navy" id="payBtn" onclick="doPayment()" disabled>Pay £6.99</button></div>
+    </div>
+  </div>
+
+  <!-- SUCCESS -->
+  <div class="card" id="pageSuccess" style="display:none;">
+    <div class="success-wrap">
+      <div class="success-emblem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
+      <h2>Order Confirmed!</h2>
+      <p class="sub">Your passport photo has been processed and emailed to you.</p>
+      <div class="order-tag" id="orderRef">—</div>
+      <p style="font-size:13px;color:var(--silver);font-weight:300;margin-bottom:4px;">Photo sent to <strong id="confirmEmail" style="color:var(--navy);font-weight:500;"></strong></p>
+      <!-- Spam tip -->
+      <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e;margin:12px 0;text-align:left;">
+        📬 <strong>Can't see the email?</strong> Check your spam or junk folder. Add <strong>info@photoboothapp.co.uk</strong> to your contacts to ensure delivery.
+      </div>
+      <div class="what-next"><strong>What happens next</strong>Your photo is attached to the email. The 6×4 print file contains 4 photos in a 2×2 grid — simply print it at any photo printing service and cut into 4 individual photos.</div>
+        <button class="btn btn-navy" id="dlJpg">⬇ Download Passport Photo</button>
+        <button class="btn btn-ghost" id="dlStrip">⬇ Download 6×4 Print</button>
+      <button class="btn btn-ghost" style="margin-top:0.75rem;width:100%;font-size:12px;" onclick="location.reload()">Start a new order →</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const STRIPE_PUB='pk_test_51TSECu35KZdLv5ZTbb4hMDl8UQmwL2fU36lpnKuWYuHZiwWMoGanluEL1DDzLizl0FhCDeuJEKhLKE0KjvRXMYgt00Kzhvw6Bp';
+let step=1,removedImageData=null,passC=null,stripC=null,stripe=null,cardEl=null,paymentIntentSecret=null;
+
+// ── GLOBAL VFS CENTRES ────────────────────────────────────
+const VFS_CENTRES = [
+  // United Kingdom — VFS Global
+  {country:'United Kingdom',city:'London',name:'VFS Global — London (Multiple Missions)'},
+  {country:'United Kingdom',city:'London',name:'UK Visa & Citizenship Application Service (UKVCAS) — London'},
+  {country:'United Kingdom',city:'Manchester',name:'VFS Global — Manchester'},
+  {country:'United Kingdom',city:'Manchester',name:'UKVCAS — Manchester'},
+  {country:'United Kingdom',city:'Birmingham',name:'VFS Global — Birmingham'},
+  {country:'United Kingdom',city:'Birmingham',name:'UKVCAS — Birmingham'},
+  {country:'United Kingdom',city:'Edinburgh',name:'VFS Global — Edinburgh'},
+  {country:'United Kingdom',city:'Edinburgh',name:'UKVCAS — Edinburgh'},
+  {country:'United Kingdom',city:'Glasgow',name:'UKVCAS — Glasgow'},
+  {country:'United Kingdom',city:'Bristol',name:'UKVCAS — Bristol'},
+  {country:'United Kingdom',city:'Leeds',name:'UKVCAS — Leeds'},
+  // United Kingdom — BLS International
+  {country:'United Kingdom',city:'London',name:'BLS International — London'},
+  {country:'United Kingdom',city:'Manchester',name:'BLS International — Manchester'},
+  {country:'United Kingdom',city:'Birmingham',name:'BLS International — Birmingham'},
+  {country:'United Kingdom',city:'Edinburgh',name:'BLS International — Edinburgh'},
+  {country:'United Kingdom',city:'Glasgow',name:'BLS International — Glasgow'},
+  // United Kingdom — TLScontact
+  {country:'United Kingdom',city:'London',name:'TLScontact — London'},
+  {country:'United Kingdom',city:'Manchester',name:'TLScontact — Manchester'},
+  {country:'United Kingdom',city:'Edinburgh',name:'TLScontact — Edinburgh'},
+  // United Kingdom — Other
+  {country:'United Kingdom',city:'London',name:'Sopra Steria — London'},
+  {country:'United Kingdom',city:'Manchester',name:'Sopra Steria — Manchester'},
+  {country:'United Kingdom',city:'Birmingham',name:'Sopra Steria — Birmingham'},
+  {country:'United Kingdom',city:'Other',name:'Other UK Application Centre'},
+  // Portugal
+  {country:'Portugal',city:'Lisbon',name:'VFS Global — Lisbon'},
+  {country:'Portugal',city:'Lisbon',name:'French Consulate VAC — Lisbon'},
+  {country:'Portugal',city:'Porto',name:'VFS Global — Porto'},
+  {country:'Portugal',city:'Faro',name:'VFS Global — Faro'},
+  // India
+  {country:'India',city:'New Delhi',name:'VFS Global — New Delhi'},
+  {country:'India',city:'Mumbai',name:'VFS Global — Mumbai'},
+  {country:'India',city:'Chennai',name:'VFS Global — Chennai'},
+  {country:'India',city:'Bangalore',name:'VFS Global — Bangalore'},
+  {country:'India',city:'Hyderabad',name:'VFS Global — Hyderabad'},
+  {country:'India',city:'Kolkata',name:'VFS Global — Kolkata'},
+  {country:'India',city:'Ahmedabad',name:'VFS Global — Ahmedabad'},
+  {country:'India',city:'Chandigarh',name:'VFS Global — Chandigarh'},
+  {country:'India',city:'Cochin',name:'VFS Global — Cochin'},
+  {country:'India',city:'Pune',name:'VFS Global — Pune'},
+  {country:'India',city:'Jaipur',name:'VFS Global — Jaipur'},
+  {country:'India',city:'Amritsar',name:'VFS Global — Amritsar'},
+  {country:'India',city:'Goa',name:'VFS Global — Goa'},
+  // Pakistan
+  {country:'Pakistan',city:'Islamabad',name:'VFS Global — Islamabad'},
+  {country:'Pakistan',city:'Karachi',name:'VFS Global — Karachi'},
+  {country:'Pakistan',city:'Lahore',name:'VFS Global — Lahore'},
+  {country:'Pakistan',city:'Peshawar',name:'VFS Global — Peshawar'},
+  {country:'Pakistan',city:'Faisalabad',name:'VFS Global — Faisalabad'},
+  {country:'Pakistan',city:'Multan',name:'VFS Global — Multan'},
+  // UAE
+  {country:'UAE',city:'Dubai',name:'VFS Global — Dubai'},
+  {country:'UAE',city:'Abu Dhabi',name:'VFS Global — Abu Dhabi'},
+  {country:'UAE',city:'Sharjah',name:'VFS Global — Sharjah'},
+  // Saudi Arabia
+  {country:'Saudi Arabia',city:'Riyadh',name:'VFS Global — Riyadh'},
+  {country:'Saudi Arabia',city:'Jeddah',name:'VFS Global — Jeddah'},
+  {country:'Saudi Arabia',city:'Dammam',name:'VFS Global — Dammam'},
+  {country:'Saudi Arabia',city:'Khobar',name:'VFS Global — Khobar'},
+  // Qatar
+  {country:'Qatar',city:'Doha',name:'VFS Global — Doha'},
+  // Kuwait
+  {country:'Kuwait',city:'Kuwait City',name:'VFS Global — Kuwait City'},
+  // Bahrain
+  {country:'Bahrain',city:'Manama',name:'VFS Global — Manama'},
+  // Oman
+  {country:'Oman',city:'Muscat',name:'VFS Global — Muscat'},
+  // Bangladesh
+  {country:'Bangladesh',city:'Dhaka',name:'VFS Global — Dhaka'},
+  {country:'Bangladesh',city:'Chittagong',name:'VFS Global — Chittagong'},
+  {country:'Bangladesh',city:'Sylhet',name:'VFS Global — Sylhet'},
+  // Sri Lanka
+  {country:'Sri Lanka',city:'Colombo',name:'VFS Global — Colombo'},
+  // USA
+  {country:'USA',city:'New York',name:'VFS Global — New York'},
+  {country:'USA',city:'Washington DC',name:'VFS Global — Washington DC'},
+  {country:'USA',city:'Los Angeles',name:'VFS Global — Los Angeles'},
+  {country:'USA',city:'Chicago',name:'VFS Global — Chicago'},
+  {country:'USA',city:'Houston',name:'VFS Global — Houston'},
+  {country:'USA',city:'San Francisco',name:'VFS Global — San Francisco'},
+  {country:'USA',city:'Atlanta',name:'VFS Global — Atlanta'},
+  // Canada
+  {country:'Canada',city:'Toronto',name:'VFS Global — Toronto'},
+  {country:'Canada',city:'Vancouver',name:'VFS Global — Vancouver'},
+  {country:'Canada',city:'Montreal',name:'VFS Global — Montreal'},
+  {country:'Canada',city:'Calgary',name:'VFS Global — Calgary'},
+  // Australia
+  {country:'Australia',city:'Sydney',name:'VFS Global — Sydney'},
+  {country:'Australia',city:'Melbourne',name:'VFS Global — Melbourne'},
+  {country:'Australia',city:'Brisbane',name:'VFS Global — Brisbane'},
+  {country:'Australia',city:'Perth',name:'VFS Global — Perth'},
+  {country:'Australia',city:'Adelaide',name:'VFS Global — Adelaide'},
+  // New Zealand
+  {country:'New Zealand',city:'Auckland',name:'VFS Global — Auckland'},
+  {country:'New Zealand',city:'Wellington',name:'VFS Global — Wellington'},
+  // France
+  {country:'France',city:'Paris',name:'VFS Global — Paris'},
+  {country:'France',city:'Lyon',name:'VFS Global — Lyon'},
+  {country:'France',city:'Marseille',name:'VFS Global — Marseille'},
+  // Germany
+  {country:'Germany',city:'Berlin',name:'VFS Global — Berlin'},
+  {country:'Germany',city:'Frankfurt',name:'VFS Global — Frankfurt'},
+  {country:'Germany',city:'Munich',name:'VFS Global — Munich'},
+  {country:'Germany',city:'Hamburg',name:'VFS Global — Hamburg'},
+  {country:'Germany',city:'Dusseldorf',name:'VFS Global — Dusseldorf'},
+  // Italy
+  {country:'Italy',city:'Rome',name:'VFS Global — Rome'},
+  {country:'Italy',city:'Milan',name:'VFS Global — Milan'},
+  // Spain
+  {country:'Spain',city:'Madrid',name:'VFS Global — Madrid'},
+  {country:'Spain',city:'Barcelona',name:'VFS Global — Barcelona'},
+  // Netherlands
+  {country:'Netherlands',city:'Amsterdam',name:'VFS Global — Amsterdam'},
+  // Sweden
+  {country:'Sweden',city:'Stockholm',name:'VFS Global — Stockholm'},
+  // Switzerland
+  {country:'Switzerland',city:'Bern',name:'VFS Global — Bern'},
+  {country:'Switzerland',city:'Zurich',name:'VFS Global — Zurich'},
+  {country:'Switzerland',city:'Geneva',name:'VFS Global — Geneva'},
+  // Ireland
+  {country:'Ireland',city:'Dublin',name:'VFS Global — Dublin'},
+  // Nigeria
+  {country:'Nigeria',city:'Lagos',name:'VFS Global — Lagos'},
+  {country:'Nigeria',city:'Abuja',name:'VFS Global — Abuja'},
+  // Ghana
+  {country:'Ghana',city:'Accra',name:'VFS Global — Accra'},
+  // Kenya
+  {country:'Kenya',city:'Nairobi',name:'VFS Global — Nairobi'},
+  // South Africa
+  {country:'South Africa',city:'Johannesburg',name:'VFS Global — Johannesburg'},
+  {country:'South Africa',city:'Cape Town',name:'VFS Global — Cape Town'},
+  {country:'South Africa',city:'Durban',name:'VFS Global — Durban'},
+  // China
+  {country:'China',city:'Beijing',name:'VFS Global — Beijing'},
+  {country:'China',city:'Shanghai',name:'VFS Global — Shanghai'},
+  {country:'China',city:'Guangzhou',name:'VFS Global — Guangzhou'},
+  // Singapore
+  {country:'Singapore',city:'Singapore',name:'VFS Global — Singapore'},
+  // Malaysia
+  {country:'Malaysia',city:'Kuala Lumpur',name:'VFS Global — Kuala Lumpur'},
+  // Thailand
+  {country:'Thailand',city:'Bangkok',name:'VFS Global — Bangkok'},
+  // Japan
+  {country:'Japan',city:'Tokyo',name:'VFS Global — Tokyo'},
+  {country:'Japan',city:'Osaka',name:'VFS Global — Osaka'},
+  // Other
+  {country:'Other',city:'Other',name:'Other / Self-submission'},
+];
+
+// ── Populate country dropdown ─────────────────────────────
+(function initCountries(){
+  const countries=[...new Set(VFS_CENTRES.map(c=>c.country))].sort();
+  const sel=document.getElementById('countryFilter');
+
+  function buildOptions(detectedCountry) {
+    sel.innerHTML='<option value="">All countries…</option>';
+
+    // Always put UK first
+    const ukOption = document.createElement('option');
+    ukOption.value = 'United Kingdom';
+    ukOption.textContent = '🇬🇧 United Kingdom';
+    sel.appendChild(ukOption);
+
+    // If detected country is not UK, add it second
+    if (detectedCountry && detectedCountry !== 'United Kingdom') {
+      const detectedOption = document.createElement('option');
+      detectedOption.value = detectedCountry;
+      detectedOption.textContent = '📍 ' + detectedCountry + ' (your location)';
+      sel.appendChild(detectedOption);
+    }
+
+    // Add separator then rest alphabetically
+    const separator = document.createElement('option');
+    separator.disabled = true;
+    separator.textContent = '──────────────';
+    sel.appendChild(separator);
+
+    countries.filter(c => c !== 'United Kingdom' && c !== detectedCountry).forEach(c => {
+      const o = document.createElement('option');
+      o.value = c; o.textContent = c;
+      sel.appendChild(o);
+    });
+
+    // Auto-select detected country
+    if (detectedCountry) {
+      sel.value = detectedCountry;
+      filterCentres();
+    }
+  }
+
+  // Try geolocation via IP (no permission needed)
+  fetch('https://ipapi.co/json/')
+    .then(r => r.json())
+    .then(data => {
+      var country = data.country_name || '';
+      // Map common country names to match VFS_CENTRES
+      var countryMap = {
+        'United Kingdom': 'United Kingdom',
+        'India': 'India',
+        'Pakistan': 'Pakistan',
+        'Bangladesh': 'Bangladesh',
+        'United States': 'United States',
+        'Canada': 'Canada',
+        'Australia': 'Australia',
+        'United Arab Emirates': 'United Arab Emirates',
+        'Saudi Arabia': 'Saudi Arabia',
+      };
+      var matched = countryMap[country] || countries.find(c => c === country) || '';
+      buildOptions(matched);
+    })
+    .catch(() => buildOptions('United Kingdom')); // Default to UK on error
+})();
+
+function filterCentres(){
+  const country=document.getElementById('countryFilter').value;
+  const cityEl=document.getElementById('cityFilter');
+  cityEl.innerHTML='<option value="">All cities…</option>';
+  const cities=[...new Set(VFS_CENTRES.filter(c=>!country||c.country===country).map(c=>c.city))].sort();
+  cities.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;cityEl.appendChild(o);});
+  filterCentresByCity();
+}
+
+function filterCentresByCity(){
+  const country=document.getElementById('countryFilter').value;
+  const city=document.getElementById('cityFilter').value;
+  const centreEl=document.getElementById('appCentre');
+  centreEl.innerHTML='<option value="">Select application centre…</option>';
+  const filtered=VFS_CENTRES.filter(c=>(!country||c.country===country)&&(!city||c.city===city));
+  filtered.forEach(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.name;centreEl.appendChild(o);});
+  // Reset visa category when centre changes
+  filterVisaByCentre('');
+}
+
+// ── Centre to visa category mapping ──────────────────────
+const CENTRE_VISA_MAP = {
+  'BLS International': {
+    allowed: ['spain-visa'],
+    autoSelect: 'spain-visa',
+    label: 'BLS International handles Spain visas only'
+  },
+  'TLScontact': {
+    allowed: ['france-visa','germany-visa','switzerland-visa','belgium-visa','luxembourg-visa'],
+    autoSelect: null,
+    label: 'TLScontact handles France, Germany, Belgium, Luxembourg & Switzerland visas'
+  },
+  'VFS Global': {
+    allowed: null, // all except BLS/TLS countries
+    excluded: ['spain-visa','france-visa','germany-visa','switzerland-visa','belgium-visa','luxembourg-visa'],
+    label: null
+  },
+  'Sopra Steria': {
+    allowed: null, // UK visa/immigration only
+    label: null
+  },
+  'UKVCAS': {
+    allowed: null,
+    label: null
+  }
+};
+
+function getCentreType(centreName) {
+  if (!centreName) return null;
+  if (centreName.includes('BLS')) return 'BLS International';
+  if (centreName.includes('TLScontact') || centreName.includes('TLS')) return 'TLScontact';
+  if (centreName.includes('VFS')) return 'VFS Global';
+  if (centreName.includes('Sopra')) return 'Sopra Steria';
+  if (centreName.includes('UKVCAS')) return 'UKVCAS';
+  return null;
+}
+
+function filterVisaByCentre(centreName) {
+  const visaSel = document.getElementById('visaCat');
+  const centreType = getCentreType(centreName);
+  const mapping = centreType ? CENTRE_VISA_MAP[centreType] : null;
+  const infoEl = document.getElementById('centre-info');
+
+  // Show/hide centre info message
+  if (mapping && mapping.label && infoEl) {
+    infoEl.textContent = 'ℹ️ ' + mapping.label;
+    infoEl.style.display = 'block';
+  } else if (infoEl) {
+    infoEl.style.display = 'none';
+  }
+
+  // Show/hide visa options based on centre
+  const optgroups = visaSel.querySelectorAll('optgroup');
+  const options = visaSel.querySelectorAll('option');
+
+  options.forEach(function(o) { o.style.display = ''; });
+  optgroups.forEach(function(g) { g.style.display = ''; });
+
+  if (mapping && mapping.allowed) {
+    // Only show allowed options
+    options.forEach(function(o) {
+      if (o.value === '') return; // keep placeholder
+      var show = mapping.allowed.includes(o.value);
+      o.style.display = show ? '' : 'none';
+    });
+    // Hide empty optgroups
+    optgroups.forEach(function(g) {
+      var visible = Array.from(g.querySelectorAll('option')).some(function(o){ return o.style.display !== 'none'; });
+      g.style.display = visible ? '' : 'none';
+    });
+    // Auto-select if only one option
+    if (mapping.autoSelect) {
+      visaSel.value = mapping.autoSelect;
+      updatePurpose();
+    } else {
+      visaSel.value = '';
+    }
+  } else if (mapping && mapping.excluded) {
+    // Hide excluded options (VFS Global)
+    options.forEach(function(o) {
+      if (o.value === '') return;
+      if (mapping.excluded.includes(o.value)) o.style.display = 'none';
+    });
+    optgroups.forEach(function(g) {
+      var visible = Array.from(g.querySelectorAll('option')).some(function(o){ return o.style.display !== 'none'; });
+      g.style.display = visible ? '' : 'none';
+    });
+    visaSel.value = '';
+  } else {
+    // Show all
+    visaSel.value = '';
+  }
+}
+
+
+// ── Photo purposes ────────────────────────────────────────
+const PURPOSES={
+  // ── Passport Renewal ──────────────────────────────────
+  'uk-passport':    ['UK Passport — 35×45mm (white or light grey background)'],
+  'us-passport':    ['US Passport — 51×51mm / 2×2 inch (white background)'],
+  'eu-passport':    ['EU Passport — 35×45mm (white or light grey background)'],
+  'indian-passport':['Indian Passport / PCC / Surrender / Renunciation — 35×45mm'],
+  'pakistani-passport':['Pakistani Passport — 35×45mm','NICOP / POC / CNIC — 35×45mm'],
+  'bangladeshi-passport':['Bangladeshi Passport — 35×45mm','National ID (NID) — 35×45mm'],
+  'sri-lankan-passport':['Sri Lankan Passport — 35×45mm'],
+  'nigerian-passport':['Nigerian Passport — 35×45mm','National ID (NIN) — 35×45mm'],
+  'ghanaian-passport':['Ghanaian Passport — 35×45mm','Ghana Card (EC) — 35×45mm'],
+  'other-passport': ['Passport Photo (ICAO standard) — 35×45mm'],
+  // ── Schengen / Europe ─────────────────────────────────
+  'schengen':       ['Schengen Visa — 35×45mm (white or light grey background)'],
+  'france-visa':    ['France Visa (TLScontact) — 35×45mm'],
+  'germany-visa':   ['Germany Visa — 35×45mm'],
+  'italy-visa':     ['Italy Visa — 35×45mm'],
+  'spain-visa':     ['Spain Visa — 35×45mm'],
+  'netherlands-visa':['Netherlands Visa — 35×45mm'],
+  'sweden-visa':    ['Sweden Visa — 35×45mm'],
+  'switzerland-visa':['Switzerland Visa — 35×45mm'],
+  // ── English Speaking ──────────────────────────────────
+  'uk-visa':        ['UK Visa — 35×45mm (white or light grey background)'],
+  'us-visa':        ['US Visa (DS-160) — 51×51mm / 2×2 inch (white background)'],
+  'canada-visa':    ['Canada Visa / TRV — 50×70mm','Canada PR / Express Entry — 50×70mm','Canada eTA — 50×70mm'],
+  'australia-visa': ['Australia Visa — 35×45mm'],
+  'newzealand-visa':['New Zealand Visa — 35×45mm'],
+  'ireland-visa':   ['Ireland Visa — 35×45mm'],
+  // ── Middle East ───────────────────────────────────────
+  'uae-visa':       ['UAE Visa — 43×55mm (white background)','Emirates ID — 43×55mm (white background)'],
+  'saudi-visa':     ['Saudi Arabia Visa — 40×60mm (white background)','Iqama / Residence Permit — 40×60mm'],
+  'qatar-visa':     ['Qatar Visa — 40×60mm (white background)','Qatar ID (QID) — 40×60mm'],
+  'kuwait-visa':    ['Kuwait Visa — 40×60mm (white background)','Kuwait Civil ID — 40×60mm'],
+  'bahrain-visa':   ['Bahrain Visa — 40×60mm (white background)','Bahrain CPR — 40×60mm'],
+  'oman-visa':      ['Oman Visa — 40×60mm (white background)'],
+  // ── Asia ──────────────────────────────────────────────
+  'india-visa':     ['India e-Visa / OCI Card — 51×51mm / 2×2 inch (square)'],
+  'china-visa':     ['China Visa — 33×48mm (white background)'],
+  'japan-visa':     ['Japan Visa — 35×45mm (white background)'],
+  'singapore-visa': ['Singapore Visa — 35×45mm','Singapore PR — 35×45mm'],
+  'malaysia-visa':  ['Malaysia Visa — 35×45mm'],
+  'thailand-visa':  ['Thailand Visa — 35×45mm'],
+  'sri-lanka-visa': ['Sri Lanka e-Visa — 35×45mm'],
+  'bangladesh-visa':['Bangladesh Visa — 35×45mm'],
+  // ── Africa ────────────────────────────────────────────
+  'nigeria-visa':   ['Nigeria Visa — 35×45mm'],
+  'ghana-visa':     ['Ghana Visa — 35×45mm'],
+  'kenya-visa':     ['Kenya e-Visa — 35×45mm'],
+  'southafrica-visa':['South Africa Visa — 35×45mm'],
+  'ethiopia-visa':  ['Ethiopia Visa — 35×45mm'],
+  // ── Other Documents ───────────────────────────────────
+  'driving':        ['UK Driving Licence — 35×45mm (light grey background)'],
+  'id-card':        ['National ID / Biometric Card — 35×45mm'],
+  'brp':            ['BRP / Biometric Residence Permit — 35×45mm'],
+  'misc':           ['Standard ICAO Photo — 35×45mm','US Standard — 51×51mm / 2×2 inch','Canada Standard — 50×70mm','Middle East Standard — 40×60mm'],
+};
+
+// ── Photo size lookup ─────────────────────────────────────
+function getPhotoSize(purpose) {
+  if (!purpose) return { w: 35, h: 45 };
+  const p = purpose.toLowerCase();
+  if (p.includes('51×51') || p.includes('2×2'))      return { w: 51, h: 51 };
+  if (p.includes('50×70') || p.includes('canada'))    return { w: 50, h: 70 };
+  if (p.includes('43×55'))                             return { w: 43, h: 55 };
+  if (p.includes('40×60'))                             return { w: 40, h: 60 };
+  if (p.includes('33×48'))                             return { w: 33, h: 48 };
+  return { w: 35, h: 45 }; // default ICAO
+}
+
+function updatePurpose(){
+  const cat=document.getElementById('visaCat').value;
+  const sel=document.getElementById('photoPurpose');
+  sel.innerHTML='<option value="">Select photo purpose…</option>';
+  if(PURPOSES[cat]){PURPOSES[cat].forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o);});if(PURPOSES[cat].length===1)sel.value=PURPOSES[cat][0];}
+}
+
+// ── Stepper ───────────────────────────────────────────────
+const ICONS=[
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>`,
+  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`,
+];
+const CHECK=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+
+function goTo(n){document.getElementById('page'+step).style.display='none';step=n;document.getElementById('page'+n).style.display='block';updateStepper();window.scrollTo({top:0,behavior:'smooth'});}
+function updateStepper(){for(let i=1;i<=4;i++){const el=document.getElementById('si'+i);el.classList.remove('active','done');const d=el.querySelector('.step-dot');if(i<step){el.classList.add('done');d.innerHTML=CHECK;}else if(i===step){el.classList.add('active');d.innerHTML=ICONS[i-1];}else{d.innerHTML=ICONS[i-1];}}}
+function mF(fi,ei,bad){document.getElementById(fi)?.classList.toggle('err',bad);document.getElementById(ei)?.classList.toggle('show',bad);return bad;}
+
+function s1(){
+  let e=false;
+  e|=mF('appCentre','e-centre',!document.getElementById('appCentre').value);
+  e|=mF('visaCat','e-visa',!document.getElementById('visaCat').value);
+  e|=mF('photoPurpose','e-purpose',!document.getElementById('photoPurpose').value);
+  if(!e)goTo(2);
+}
+function s2(){
+  const n=document.getElementById('fullName').value.trim();
+  const em=document.getElementById('email').value.trim();
+  const ec=document.getElementById('emailConfirm').value.trim();
+  const ph=document.getElementById('phone').value.trim();
+  let e=false;
+  e|=mF('fullName','e-name',!n);e|=mF('email','e-email',!em||!em.includes('@'));
+  e|=mF('emailConfirm','e-email2',em!==ec);e|=mF('phone','e-phone',!ph);
+  if(!e)goTo(3);
+}
+
+// ── Real-time tracker ─────────────────────────────────────
+function rtSet(id,state,badgeText){
+  const el=document.getElementById(id);el.classList.remove('active','done','error');
+  if(state)el.classList.add(state);
+  const b=document.getElementById(id+'-badge');
+  if(b){b.className='rt-badge '+state;b.innerHTML=state==='active'?`<span class="spinner-sm"></span> ${badgeText}`:badgeText;}
+}
+
+// ── Photo upload ──────────────────────────────────────────
+// ── Dynamic processing feedback ───────────────────────────
+var processingTimer = null;
+var processingStart = null;
+
+function startProcessingTimer(elementId) {
+  processingStart = Date.now();
+  processingTimer = setInterval(function() {
+    var el = document.getElementById(elementId);
+    if (!el) { clearInterval(processingTimer); return; }
+    var sec = Math.floor((Date.now() - processingStart) / 1000);
+    if (sec > 3) el.textContent = sec + 's';
+  }, 1000);
+}
+
+function stopProcessingTimer() {
+  if (processingTimer) { clearInterval(processingTimer); processingTimer = null; }
+}
+// ── Phone number formatting ───────────────────────────────
+function formatPhone(input) {
+  var val = input.value.replace(/[^\d\s\-\(\)]/g, '');
+  input.value = val;
+  var ph = val.replace(/\D/g, '');
+  var ok = ph.length >= 7 && ph.length <= 15;
+  document.getElementById('e-phone').classList.toggle('show', !ok && val.length > 0);
+  input.classList.toggle('err', !ok && val.length > 0);
+}
+function updatePrintOption() {
+  var isPrint = document.querySelector('input[name="printOption"]:checked').value === 'print';
+  var payBtn = document.getElementById('payBtn');
+  if (paymentIntentSecret) {
+    payBtn.textContent = isPrint ? 'Pay £9.99' : 'Pay £6.99';
+  }
+  document.getElementById('optDigitalLabel').style.borderColor = !isPrint ? 'var(--navy)' : 'transparent';
+  document.getElementById('optPrintLabel').style.borderColor = isPrint ? 'var(--navy)' : 'transparent';
+  // Update order summary
+  var totalEl = document.getElementById('summaryTotal');
+  var serviceEl = document.getElementById('summaryService');
+  if (totalEl) totalEl.textContent = isPrint ? '£9.99' : '£6.99';
+  if (serviceEl) serviceEl.textContent = isPrint ? 'Digital + Print (Lon-Wilson)' : 'Digital Only';
+}
+
+function togglePayBtn() {
+  var terms = document.getElementById('termsConsent');
+  var payBtn = document.getElementById('payBtn');
+  if (terms && terms.checked && paymentIntentSecret) {
+    payBtn.disabled = false;
+    var isPrint = document.querySelector('input[name="printOption"]:checked').value === 'print';
+    payBtn.textContent = isPrint ? 'Pay £9.99' : 'Pay £6.99';
+  }
+}
+
+// ── Camera button — webcam on desktop, capture on mobile ──
+(function() {
+  var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  if (isMobile) {
+    document.getElementById('photoFileCamera').setAttribute('capture', 'environment');
+  } else {
+    document.getElementById('takePhotoLabel').addEventListener('click', function(e) {
+      e.preventDefault();
+      if (!document.getElementById('photoConsent').checked) {
+        setMsg('photoStatus', 'Please tick the consent box above before taking a photo.', 'error');
+        return;
+      }
+      openWebcam();
+    });
+  }
+})();
+
+function openWebcam() {
+  var modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;';
+  modal.innerHTML = '<video id="webcamVideo" autoplay playsinline style="max-width:90%;max-height:60vh;border-radius:12px;border:2px solid #F5D06A;"></video>' +
+    '<p style="color:rgba(255,255,255,0.6);font-size:13px;margin-top:12px;">Position your face in the centre</p>' +
+    '<div style="margin-top:16px;display:flex;gap:12px;">' +
+    '<button onclick="captureWebcam()" style="padding:14px 32px;background:linear-gradient(135deg,#F5D06A,#C8920A);color:#0A0A0A;border:none;border-radius:99px;font-size:16px;font-weight:600;cursor:pointer;">📸 Capture</button>' +
+    '<button onclick="closeWebcam()" style="padding:14px 32px;background:transparent;color:white;border:1px solid rgba(255,255,255,0.3);border-radius:99px;font-size:16px;cursor:pointer;">✕ Cancel</button>' +
+    '</div><canvas id="webcamCanvas" style="display:none;"></canvas>';
+  document.body.appendChild(modal);
+  window._webcamModal = modal;
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 1280, height: 720 } })
+    .then(function(stream) {
+      document.getElementById('webcamVideo').srcObject = stream;
+      window._webcamStream = stream;
+    })
+    .catch(function() {
+      closeWebcam();
+      document.getElementById('photoFileCamera').click();
+    });
+}
+
+function captureWebcam() {
+  var video = document.getElementById('webcamVideo');
+  var canvas = document.getElementById('webcamCanvas');
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.toBlob(function(blob) {
+    closeWebcam();
+    doPhoto(new File([blob], 'webcam.jpg', { type: 'image/jpeg' }));
+  }, 'image/jpeg', 0.95);
+}
+
+function closeWebcam() {
+  if (window._webcamStream) { window._webcamStream.getTracks().forEach(function(t){t.stop();}); window._webcamStream=null; }
+  if (window._webcamModal) { document.body.removeChild(window._webcamModal); window._webcamModal=null; }
+}
+
+// ── Block upload if consent not given
+document.getElementById('photoFile').addEventListener('click', function(e) {
+  if (!document.getElementById('photoConsent').checked) {
+    e.preventDefault();
+    setMsg('photoStatus', 'Please tick the consent box above before uploading your photo.', 'error');
+  }
+});
+document.getElementById('photoFileCamera').addEventListener('click', function(e) {
+  if (!document.getElementById('photoConsent').checked) {
+    e.preventDefault();
+    setMsg('photoStatus', 'Please tick the consent box above before uploading your photo.', 'error');
+  }
+});
+document.getElementById('photoFile').addEventListener('change',e=>{if(e.target.files[0])doPhoto(e.target.files[0]);});
+document.getElementById('photoFileCamera').addEventListener('change',e=>{if(e.target.files[0])doPhoto(e.target.files[0]);});
+document.getElementById('uploadArea').addEventListener('dragover',e=>{e.preventDefault();document.getElementById('uploadArea').classList.add('drag');});
+document.getElementById('uploadArea').addEventListener('dragleave',()=>document.getElementById('uploadArea').classList.remove('drag'));
+document.getElementById('uploadArea').addEventListener('drop',e=>{e.preventDefault();document.getElementById('uploadArea').classList.remove('drag');if(e.dataTransfer.files[0])doPhoto(e.dataTransfer.files[0]);});
+
+function setMsg(id,msg,type,spin){const el=document.getElementById(id);el.innerHTML=(spin?'<span class="spinner"></span>':'')+msg;el.className='status show '+type;}
+function clearMsg(id){document.getElementById(id).className='status';}
+
+// ── Crop Editor ──────────────────────────────────────────
+var cropState = {
+  img: null, x: 0, y: 0, zoom: 1, baseZoom: 1, rotation: 0,
+  dragging: false, lastX: 0, lastY: 0, lastPinch: null,
+  vpSize: 300
+};
+
+function initCropEditor(file) {
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var img = new Image();
+    img.onload = function() {
+      var vp = cropState.vpSize;
+      // Fit entire image inside viewport (show whole face)
+      var baseZoom = Math.min(vp / img.naturalWidth, vp / img.naturalHeight);
+      cropState.img      = img;
+      cropState.rotation = 0;
+      cropState.baseZoom = baseZoom;
+      cropState.zoom     = baseZoom;
+      // Centre image in viewport
+      cropState.x = (vp - img.naturalWidth  * baseZoom) / 2;
+      cropState.y = (vp - img.naturalHeight * baseZoom) / 2;
+      // Slider starts at 100 = fit, max 300 = 3x zoom
+      document.getElementById('zoomSlider').min   = 100;
+      document.getElementById('zoomSlider').max   = 300;
+      document.getElementById('zoomSlider').value = 100;
+      drawCrop();
+      document.getElementById('uploadArea').style.display = 'none';
+      document.getElementById('cropEditor').classList.add('show');
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function drawCrop() {
+  var c   = document.getElementById('cropCanvas');
+  var vp  = cropState.vpSize;
+  c.width = vp; c.height = vp;
+  var ctx = c.getContext('2d');
+  ctx.fillStyle = '#1a1a1a';
+  ctx.fillRect(0, 0, vp, vp);
+  ctx.save();
+  // Rotate around centre of viewport
+  ctx.translate(vp / 2, vp / 2);
+  ctx.rotate(cropState.rotation * Math.PI / 180);
+  ctx.translate(-vp / 2, -vp / 2);
+  var img = cropState.img;
+  var w   = img.naturalWidth  * cropState.zoom;
+  var h   = img.naturalHeight * cropState.zoom;
+  ctx.drawImage(img, cropState.x, cropState.y, w, h);
+  ctx.restore();
+}
+
+function zoomAroundCentre(newZoom) {
+  var vp      = cropState.vpSize;
+  var cx      = vp / 2;
+  var cy      = vp / 2;
+  var oldZoom = cropState.zoom;
+  var ratio   = newZoom / oldZoom;
+  // Adjust x/y so zoom is anchored to viewport centre
+  cropState.x     = cx - (cx - cropState.x) * ratio;
+  cropState.y     = cy - (cy - cropState.y) * ratio;
+  cropState.zoom  = newZoom;
+}
+
+function rotateCrop(deg) {
+  cropState.rotation = (cropState.rotation + deg + 360) % 360;
+  drawCrop();
+}
+
+document.getElementById('zoomSlider').addEventListener('input', function() {
+  // Slider 100 = baseZoom, 300 = 3x baseZoom
+  var factor   = parseFloat(this.value) / 100;
+  var newZoom  = cropState.baseZoom * factor;
+  zoomAroundCentre(newZoom);
+  drawCrop();
+});
+
+// Mouse drag
+var vpEl = document.getElementById('cropViewport');
+vpEl.addEventListener('mousedown', function(e) {
+  cropState.dragging = true;
+  cropState.lastX = e.clientX;
+  cropState.lastY = e.clientY;
+  vpEl.classList.add('dragging');
+});
+window.addEventListener('mousemove', function(e) {
+  if (!cropState.dragging) return;
+  cropState.x += e.clientX - cropState.lastX;
+  cropState.y += e.clientY - cropState.lastY;
+  cropState.lastX = e.clientX;
+  cropState.lastY = e.clientY;
+  drawCrop();
+});
+window.addEventListener('mouseup', function() {
+  cropState.dragging = false;
+  vpEl.classList.remove('dragging');
+});
+
+// Touch drag + pinch zoom
+vpEl.addEventListener('touchstart', function(e) {
+  if (e.touches.length === 1) {
+    cropState.dragging = true;
+    cropState.lastX = e.touches[0].clientX;
+    cropState.lastY = e.touches[0].clientY;
+  }
+}, { passive: true });
+
+vpEl.addEventListener('touchmove', function(e) {
+  e.preventDefault();
+  if (e.touches.length === 1 && cropState.dragging) {
+    cropState.x += e.touches[0].clientX - cropState.lastX;
+    cropState.y += e.touches[0].clientY - cropState.lastY;
+    cropState.lastX = e.touches[0].clientX;
+    cropState.lastY = e.touches[0].clientY;
+    drawCrop();
+  } else if (e.touches.length === 2) {
+    var dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    if (cropState.lastPinch) {
+      var newZoom = Math.min(Math.max(cropState.zoom * (dist / cropState.lastPinch), cropState.baseZoom), cropState.baseZoom * 3);
+      var sliderVal = Math.round((newZoom / cropState.baseZoom) * 100);
+      document.getElementById('zoomSlider').value = sliderVal;
+      zoomAroundCentre(newZoom);
+      drawCrop();
+    }
+    cropState.lastPinch = dist;
+  }
+}, { passive: false });
+
+vpEl.addEventListener('touchend', function() {
+  cropState.dragging = false;
+  cropState.lastPinch = null;
+});
+
+// Scroll to zoom
+vpEl.addEventListener('wheel', function(e) {
+  e.preventDefault();
+  var factor  = e.deltaY < 0 ? 1.08 : 0.92;
+  var newZoom = Math.min(Math.max(cropState.zoom * factor, cropState.baseZoom), cropState.baseZoom * 3);
+  var sliderVal = Math.round((newZoom / cropState.baseZoom) * 100);
+  document.getElementById('zoomSlider').value = sliderVal;
+  zoomAroundCentre(newZoom);
+  drawCrop();
+}, { passive: false });
+
+async function confirmCrop() {
+  var btn = document.querySelector('.crop-confirm');
+  btn.disabled = true;
+  btn.textContent = '🤖 Checking photo quality…';
+  var c = document.getElementById('cropCanvas');
+  c.toBlob(async function(blob) {
+    var croppedFile = new File([blob], 'cropped.jpg', { type: 'image/jpeg' });
+
+    // ── AI validation after crop ──────────────────────────
+    try {
+      var fd = new FormData();
+      fd.append('photo', croppedFile);
+      var valRes  = await fetch('/api/validate-photo', { method: 'POST', body: fd });
+      var valData = await valRes.json();
+      if (!valData.approved) {
+        var issueMessages = {
+          'glasses_detected': '👓 Glasses detected — please remove your glasses and retake.',
+          'no_face':          '😶 No face detected — make sure your face is clearly visible.',
+          'multiple_faces':   '👥 Multiple faces — only one person should be in the photo.',
+          'eyes_closed':      '👁️ Eyes appear closed — please keep your eyes fully open.',
+          'head_tilted':      '↩️ Head is tilted — please look straight at the camera.',
+          'hat_or_headwear':  '🧢 Hat detected — please remove it.',
+          'poor_lighting':    '💡 Poor lighting — please take the photo in a well-lit area.',
+          'face_too_small':   '🔍 Face too small — please move closer to the camera.',
+          'blurry':           '📷 Photo is blurry — please retake with a steady hand.',
+          'mouth_open':       '😮 Mouth open — please close your mouth.',
+        };
+        var issueList = (valData.issues||[]).map(function(i){ return issueMessages[i]||i; });
+        var msgHtml = issueList.length > 0
+          ? '<strong>Photo rejected — please retake</strong><br><br>' + issueList.join('<br>')
+          : (valData.message || 'Photo did not meet requirements. Please retake.');
+        btn.disabled = false;
+        btn.textContent = '✓ Use This Photo →';
+        document.getElementById('cropEditor').classList.remove('show');
+        document.getElementById('uploadArea').style.display = '';
+        setMsg('photoStatus', msgHtml, 'error');
+        return;
+      }
+    } catch(e) {
+      console.warn('Validation skipped:', e.message);
+    }
+
+    btn.disabled = false;
+    btn.textContent = '✓ Use This Photo →';
+    document.getElementById('cropEditor').classList.remove('show');
+    document.getElementById('uploadArea').style.display = '';
+    processPhoto(croppedFile);
+  }, 'image/jpeg', 0.95);
+}
+
+async function doPhoto(file) {
+  if (!file.type.startsWith('image/')) { setMsg('photoStatus','Please select a JPEG or PNG image.','error'); return; }
+  if (file.size > 10*1024*1024) { setMsg('photoStatus','Photo too large — please use under 10MB.','error'); return; }
+  clearMsg('photoStatus');
+  // Show crop editor first
+  initCropEditor(file);
+}
+
+// ── Photo Editor ──────────────────────────────────────────
+var editorSourceCanvas = null;
+
+function showPhotoEditor(sourceCanvas) {
+  editorSourceCanvas = sourceCanvas;
+  var ec = document.getElementById('editorCanvas');
+  ec.width = sourceCanvas.width;
+  ec.height = sourceCanvas.height;
+  ec.getContext('2d').drawImage(sourceCanvas, 0, 0);
+  resetEditSliders();
+  document.getElementById('photoEditor').classList.add('show');
+}
+
+function resetEditSliders() {
+  document.getElementById('edBrightness').value = 0;
+  document.getElementById('edContrast').value = 0;
+  document.getElementById('edWarmth').value = 0;
+  document.getElementById('edSaturation').value = 0;
+  document.getElementById('edBrightnessVal').textContent = '0';
+  document.getElementById('edContrastVal').textContent = '0';
+  document.getElementById('edWarmthVal').textContent = '0';
+  document.getElementById('edSaturationVal').textContent = '0';
+}
+
+function resetEdits() {
+  resetEditSliders();
+  applyEdits();
+}
+
+function applyEdits() {
+  if (!editorSourceCanvas) return;
+  var brightness = parseInt(document.getElementById('edBrightness').value);
+  var contrast   = parseInt(document.getElementById('edContrast').value);
+  var warmth     = parseInt(document.getElementById('edWarmth').value);
+  var saturation = parseInt(document.getElementById('edSaturation').value);
+
+  var ec = document.getElementById('editorCanvas');
+  var ctx = ec.getContext('2d');
+  ctx.drawImage(editorSourceCanvas, 0, 0);
+
+  var imgData = ctx.getImageData(0, 0, ec.width, ec.height);
+  var d = imgData.data;
+
+  for (var i = 0; i < d.length; i += 4) {
+    var r = d[i], g = d[i+1], b = d[i+2];
+
+    // Brightness
+    r += brightness; g += brightness; b += brightness;
+
+    // Contrast
+    var factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
+    r = factor * (r - 128) + 128;
+    g = factor * (g - 128) + 128;
+    b = factor * (b - 128) + 128;
+
+    // Warmth (shift red/blue channels)
+    r += warmth;
+    b -= warmth;
+
+    // Saturation
+    var grey = 0.299 * r + 0.587 * g + 0.114 * b;
+    var sat = saturation / 100;
+    r = grey + (1 + sat) * (r - grey);
+    g = grey + (1 + sat) * (g - grey);
+    b = grey + (1 + sat) * (b - grey);
+
+    // Clamp
+    d[i]   = Math.max(0, Math.min(255, r));
+    d[i+1] = Math.max(0, Math.min(255, g));
+    d[i+2] = Math.max(0, Math.min(255, b));
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+}
+
+function fixRedEye() {
+  var ec = document.getElementById('editorCanvas');
+  var ctx = ec.getContext('2d');
+  var imgData = ctx.getImageData(0, 0, ec.width, ec.height);
+  var d = imgData.data;
+  var fixed = 0;
+
+  for (var i = 0; i < d.length; i += 4) {
+    var r = d[i], g = d[i+1], b = d[i+2];
+    // Detect red eye: red channel much higher than green and blue
+    if (r > 150 && r > g * 2.5 && r > b * 2.5) {
+      // Replace with natural eye colour (dark grey/brown)
+      var avg = (g + b) / 2;
+      d[i]   = avg * 0.3;   // reduce red significantly
+      d[i+1] = avg * 0.3;
+      d[i+2] = avg * 0.3;
+      fixed++;
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+  // Update source so further edits preserve fix
+  editorSourceCanvas = document.createElement('canvas');
+  editorSourceCanvas.width = ec.width;
+  editorSourceCanvas.height = ec.height;
+  editorSourceCanvas.getContext('2d').drawImage(ec, 0, 0);
+
+  if (fixed > 0) {
+    alert('✅ Red eye fixed on ' + fixed + ' pixels!');
+  } else {
+    alert('No red eye detected in this photo.');
+  }
+}
+
+function applyEditsAndProcess() {
+  // Get edited canvas and process it
+  var ec = document.getElementById('editorCanvas');
+  ec.toBlob(function(blob) {
+    var editedFile = new File([blob], 'edited.jpg', { type: 'image/jpeg' });
+    document.getElementById('photoEditor').classList.remove('show');
+    document.getElementById('uploadArea').style.display = '';
+    processPhoto(editedFile);
+  }, 'image/jpeg', 0.95);
+}
+var rmbgModel = null;
+var rmbgProcessor = null;
+var rmbgReady = false;
+var rmbgLoading = false;
+
+async function initRMBG() {
+  if (rmbgReady) return true;
+  if (rmbgLoading) {
+    while (rmbgLoading) await new Promise(r => setTimeout(r, 100));
+    return rmbgReady;
+  }
+  try {
+    rmbgLoading = true;
+    // Wait for transformers.js to load
+    var waited = 0;
+    while (!window._transformersReady && waited < 10000) {
+      await new Promise(r => setTimeout(r, 200));
+      waited += 200;
+    }
+    if (!window._transformersReady) throw new Error('Transformers.js not loaded');
+
+    console.log('Loading RMBG-1.4 model…');
+    var { AutoModel, AutoProcessor, env } = window._transformers;
+    env.allowLocalModels = false;
+
+    rmbgModel = await AutoModel.from_pretrained('briaai/RMBG-1.4', {
+      config: { model_type: 'custom' }
+    });
+    rmbgProcessor = await AutoProcessor.from_pretrained('briaai/RMBG-1.4', {
+      config: {
+        do_normalize: true, do_pad: false, do_rescale: true, do_resize: true,
+        image_mean: [0.5, 0.5, 0.5],
+        feature_extractor_type: 'ImageFeatureExtractor',
+        image_std: [1, 1, 1], resample: 2,
+        rescale_factor: 0.00392156862745098,
+        size: { width: 1024, height: 1024 }
+      }
+    });
+    rmbgReady = true;
+    rmbgLoading = false;
+    console.log('RMBG-1.4 model loaded ✅');
+    return true;
+  } catch(e) {
+    rmbgLoading = false;
+    console.warn('RMBG-1.4 init failed:', e.message);
+    return false;
+  }
+}
+
+async function removeBackgroundRMBG(file) {
+  var { RawImage } = window._transformers;
+  var ok = await initRMBG();
+  if (!ok) throw new Error('RMBG model unavailable');
+
+  // Load image
+  var url = URL.createObjectURL(file);
+  var image = await RawImage.fromURL(url);
+  URL.revokeObjectURL(url);
+
+  // Process
+  var { pixel_values } = await rmbgProcessor(image);
+  var { output } = await rmbgModel({ input: pixel_values });
+
+  // Get mask
+  var maskData = await RawImage.fromTensor(output[0].mul(255).to('uint8')).resize(image.width, image.height);
+
+  // Apply mask to original image - white background
+  var canvas = document.createElement('canvas');
+  canvas.width = image.width;
+  canvas.height = image.height;
+  var ctx = canvas.getContext('2d');
+
+  // Draw original image
+  var img = new Image();
+  var blobUrl = URL.createObjectURL(file);
+  await new Promise(function(resolve) {
+    img.onload = resolve;
+    img.src = blobUrl;
+  });
+  URL.revokeObjectURL(blobUrl);
+
+  // White background
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Draw image
+  ctx.drawImage(img, 0, 0);
+
+  // Apply mask — set background pixels to white
+  var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  var pixels = imgData.data;
+  var maskPixels = maskData.data;
+
+  for (var i = 0; i < pixels.length / 4; i++) {
+    var alpha = maskPixels[i * (maskPixels.length / pixels.length * 4)] || maskPixels[i];
+    if (alpha < 128) {
+      pixels[i * 4]     = 255; // R white
+      pixels[i * 4 + 1] = 255; // G white
+      pixels[i * 4 + 2] = 255; // B white
+      pixels[i * 4 + 3] = 255; // A opaque
+    }
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+  console.log('RMBG-1.4 success ✅');
+  return canvas.toDataURL('image/png');
+}
+
+async function processPhoto(file) {
+  if(!file.type.startsWith('image/')){setMsg('photoStatus','Please select a JPEG or PNG image.','error');return;}
+  if(file.size>10*1024*1024){setMsg('photoStatus','Photo too large — please use under 10MB.','error');return;}
+  document.getElementById('photoResult').classList.remove('show');
+  document.getElementById('toPayBtn').disabled=true;
+  clearMsg('photoStatus');
+  document.getElementById('rtTracker').classList.add('show');
+  rtSet('rt1','active','Uploading…');rtSet('rt2','pending','Waiting');rtSet('rt3','pending','Waiting');rtSet('rt4','pending','Waiting');
+
+  try {
+    rtSet('rt1','done','Done');
+    rtSet('rt2','active','Removing background…');
+
+    var removedData = null;
+
+    // ── Try RMBG-1.4 first (free, in-browser) ────────────
+    try {
+      console.log('Trying RMBG-1.4 segmentation…');
+      var base64 = await removeBackgroundRMBG(file);
+      removedData = base64;
+      console.log('RMBG-1.4 success ✅');
+
+
+
+
+    } catch(mpErr) {
+      console.warn('RMBG-1.4 failed:', mpErr.message);
+
+      // ── Test mode: skip remove.bg, use original image ─
+      // Remove this block when going live
+      var testMode = false; // set to true to skip remove.bg during testing
+      if (testMode) {
+        console.log('TEST MODE: skipping remove.bg, using original image');
+        var reader = new FileReader();
+        removedData = await new Promise(function(resolve) {
+          reader.onload = function(e) { resolve(e.target.result); };
+          reader.readAsDataURL(file);
+        });
+
+
+
+
+      } else {
+        // ── Fallback to remove.bg ─────────────────────────
+        rtSet('rt2','active','Processing…');
+        const fd = new FormData();
+        fd.append('photo', file);
+        if(typeof grecaptcha !== 'undefined') {
+          try {
+            const token = await new Promise(resolve => grecaptcha.ready(() => grecaptcha.execute('6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM',{action:'upload'}).then(resolve).catch(()=>resolve(''))));
+            fd.append('recaptchaToken', token);
+          } catch(e) { fd.append('recaptchaToken',''); }
+        }
+        const res = await fetch('/api/remove-bg', {method:'POST', body:fd});
+        if(!res.ok){const e=await res.json();throw new Error(e.error||'Background removal failed');}
+        const data = await res.json();
+        removedData = data.image;
+        console.log('remove.bg fallback success ✅');
+
+
+
+
+      }
+    }
+
+    rtSet('rt2','done','Done');
+    rtSet('rt3','active','Formatting…');
+    removedImageData = removedData;
+    await buildPassport(removedData);
+    rtSet('rt3','done','Done');
+    rtSet('rt4','done','Ready ✓');
+    document.getElementById('photoResult').classList.add('show');
+    document.getElementById('serviceSelector').style.display = 'block';
+    document.getElementById('toPayBtn').disabled=false;
+    clearMsg('photoStatus');
+
+  } catch(err) {
+    rtSet('rt1','error','Error');rtSet('rt2','error','Error');
+    setMsg('photoStatus','Error: '+err.message,'error');
+  }
+}
+
+async function buildPassport(imgData){
+  const purpose=document.getElementById('photoPurpose').value;
+  const size=getPhotoSize(purpose);
+  const DPI=300;
+  const outW=Math.round(size.w/25.4*DPI);
+  const outH=Math.round(size.h/25.4*DPI);
+
+  const img=await loadImg(imgData);
+  const iw=img.naturalWidth,ih=img.naturalHeight;
+  const rc=document.getElementById('removedCanvas');rc.width=300;rc.height=300;
+  const rctx=rc.getContext('2d');rctx.clearRect(0,0,300,300);
+  const side=Math.min(iw,ih);rctx.drawImage(img,(iw-side)/2,(ih-side)/2,side,side,0,0,300,300);
+
+  passC=document.getElementById('passportCanvas');passC.width=outW;passC.height=outH;
+  const pc=passC.getContext('2d');pc.fillStyle='#ffffff';pc.fillRect(0,0,outW,outH);
+  const scale=Math.max(outW/iw,(outH*0.92)/ih);const sw=iw*scale,sh=ih*scale;
+  pc.drawImage(img,(outW-sw)/2,outH*0.04,sw,sh);
+  pc.strokeStyle='rgba(13,27,46,0.05)';pc.lineWidth=2;pc.strokeRect(4,4,outW-8,outH-8);
+  buildStrip(passC,outW,outH);
+}
+function buildStrip(src, sw, sh) {
+  // 6x4 inch print at 300 DPI = 1800x1200px
+  // 2x2 grid of passport photos with margins
+  var DPI = 300;
+  var printW = 6 * DPI;   // 1800px
+  var printH = 4 * DPI;   // 1200px
+  var pad = Math.round(0.2 * DPI);  // 60px margin
+  var gap = Math.round(0.1 * DPI);  // 30px gap between photos
+
+  // Calculate photo size to fit 2x2 grid
+  var photoW = Math.floor((printW - pad * 2 - gap) / 2);
+  var photoH = Math.floor((printH - pad * 2 - gap) / 2);
+
+  // Create 6x4 canvas
+  stripC = document.createElement('canvas');
+  stripC.width = printW;
+  stripC.height = printH;
+  var sc = stripC.getContext('2d');
+
+  // White background
+  sc.fillStyle = '#ffffff';
+  sc.fillRect(0, 0, printW, printH);
+
+  // Draw 4 photos in 2x2 grid
+  var positions = [
+    { x: pad,           y: pad },
+    { x: pad + photoW + gap, y: pad },
+    { x: pad,           y: pad + photoH + gap },
+    { x: pad + photoW + gap, y: pad + photoH + gap }
+  ];
+
+  positions.forEach(function(pos) {
+    sc.drawImage(src, pos.x, pos.y, photoW, photoH);
+    // Cut guides (dashed lines)
+    sc.strokeStyle = 'rgba(0,0,0,0.15)';
+    sc.setLineDash([6, 4]);
+    sc.lineWidth = 1;
+    sc.strokeRect(pos.x, pos.y, photoW, photoH);
+    sc.setLineDash([]);
+  });
+
+  // Update preview strip row - show 4 small previews in 2x2
+  var row = document.getElementById('stripRow');
+  row.innerHTML = '';
+  row.style.display = 'grid';
+  row.style.gridTemplateColumns = '1fr 1fr';
+  row.style.gap = '4px';
+  row.style.maxWidth = '200px';
+  row.style.margin = '0 auto';
+
+  positions.forEach(function() {
+    var m = document.createElement('canvas');
+    var previewW = 80;
+    var previewH = Math.round(previewW * photoH / photoW);
+    m.width = previewW;
+    m.height = previewH;
+    m.style.width = '100%';
+    m.style.borderRadius = '3px';
+    m.style.border = '0.5px dashed rgba(0,0,0,0.2)';
+    m.getContext('2d').drawImage(src, 0, 0, previewW, previewH);
+    row.appendChild(m);
+  });
+}
+function loadImg(src){return new Promise((r,j)=>{const i=new Image();i.onload=()=>r(i);i.onerror=()=>j(new Error('Load failed'));i.src=src;});}
+
+function s3(){
+  if(!removedImageData)return;
+  const purpose=document.getElementById('photoPurpose').value;
+  const centre=document.getElementById('appCentre').value;
+  const name=document.getElementById('fullName').value;
+  const email=document.getElementById('email').value;
+  const printOptEl = document.querySelector('input[name="printOption"]:checked');
+  const printOpt = printOptEl ? printOptEl.value : 'digital';
+  const amount = printOpt === 'print' ? '£9.99' : '£6.99';
+  const amountPence = printOpt === 'print' ? 999 : 699;
+  const serviceLabel = printOpt === 'print' ? 'Digital + Print (Lon-Wilson)' : 'Digital Only';
+
+  document.getElementById('orderSummary').innerHTML=`
+    <div class="summary-head">Order Summary</div>
+    <div class="summary-body">
+      <div class="sum-row"><span class="sum-lbl">Service</span><span class="sum-val" id="summaryService">${serviceLabel}</span></div>
+      <div class="sum-row"><span class="sum-lbl">Photo purpose</span><span class="sum-val">${purpose}</span></div>
+      <div class="sum-row"><span class="sum-lbl">Application centre</span><span class="sum-val">${centre}</span></div>
+      <div class="sum-row"><span class="sum-lbl">Customer</span><span class="sum-val">${name}</span></div>
+      <div class="sum-row"><span class="sum-lbl">Email</span><span class="sum-val">${email}</span></div>
+    </div>
+    <div class="sum-total-row"><span class="sum-total-lbl">Total</span><span class="sum-total-val" id="summaryTotal">${amount}</span></div>
+  `;
+  goTo(4);
+  paymentIntentSecret = null;
+  var payBtn = document.getElementById('payBtn');
+  payBtn.disabled = true;
+  payBtn.textContent = 'Preparing…';
+
+  if(!stripe){
+    stripe=Stripe(STRIPE_PUB);
+    const elements=stripe.elements();
+    cardEl=elements.create('card',{style:{base:{fontFamily:'DM Sans,sans-serif',fontSize:'14px',color:'#0d1b2e','::placeholder':{color:'#8a9bb0'}},invalid:{color:'#f87171'}},hidePostalCode:true});
+    cardEl.mount('#card-element');
+    cardEl.addEventListener('change',e=>{document.getElementById('card-errors').textContent=e.error?e.error.message:'';});
+  }
+
+  // Create payment intent with correct amount
+  fetch('/api/create-payment-intent',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:name, email:email, recaptchaToken:'', amountPence:amountPence})
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if(d.clientSecret){
+      paymentIntentSecret = d.clientSecret;
+      payBtn.textContent = 'Pay £6.99';
+      var terms = document.getElementById('termsConsent');
+      if (terms && terms.checked) payBtn.disabled = false;
+    } else {
+      payBtn.textContent = 'Pay £6.99';
+      payBtn.disabled = true;
+      setMsg('payStatus', 'Payment setup failed: ' + (d.error || 'Unknown error') + '. Please go back and try again.', 'error');
+      console.error('Payment intent error:', d);
+    }
+  }).catch(function(err){
+    payBtn.textContent = 'Pay £6.99';
+    payBtn.disabled = true;
+    setMsg('payStatus', 'Connection error. Please check your internet and try again.', 'error');
+    console.error('Payment intent fetch error:', err);
+  });
+}
+
+async function doPayment(){
+  const cn=document.getElementById('cardName').value.trim();
+  if(!cn){document.getElementById('card-errors').textContent='Please enter the name on your card.';return;}
+  const btn=document.getElementById('payBtn');
+  btn.disabled=true;document.getElementById('backBtn').disabled=true;
+  btn.innerHTML='<span class="spinner"></span>Processing…';
+  clearMsg('payStatus');
+  document.getElementById('payTracker').classList.add('show');
+  rtSet('pt1','active','Authorising…');rtSet('pt2','pending','Waiting');rtSet('pt3','pending','Waiting');rtSet('pt4','pending','Waiting');
+  try{
+    // If payment intent not ready yet, wait up to 10 seconds
+    if(!paymentIntentSecret){
+      let waited = 0;
+      await new Promise(function(resolve){
+        var check = setInterval(function(){
+          waited += 200;
+          if(paymentIntentSecret || waited >= 10000){ clearInterval(check); resolve(); }
+        }, 200);
+      });
+    }
+    if(!paymentIntentSecret) throw new Error('Payment setup failed. Please go back and try again.');
+    // Step 1: Confirm payment with Stripe
+    const{error,paymentIntent}=await stripe.confirmCardPayment(paymentIntentSecret,{payment_method:{card:cardEl,billing_details:{name:cn,email:document.getElementById('email').value}}});
+    if(error)throw new Error(error.message);
+    rtSet('pt1','done','Authorised');rtSet('pt2','active','Processing…');
+    await delay(400);
+
+    // Step 2: Store photo securely on server
+    const passportJpeg=await canvasToBase64(passC,'image/jpeg',0.95);
+    const storeRes=await fetch('/api/store-photo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passportImage:passportJpeg})});
+    if(!storeRes.ok) throw new Error('Failed to process photo');
+    const storeData=await storeRes.json();
+
+    rtSet('pt2','done','Paid ✓');rtSet('pt3','active','Sending email…');
+
+    // Step 3: Confirm order — server verifies payment with Stripe before emailing
+    const orderRef='PBA-'+Date.now().toString(36).toUpperCase();
+    const selectedPrintOpt = document.querySelector('input[name="printOption"]:checked') ? document.querySelector('input[name="printOption"]:checked').value : 'digital';
+    const res=await fetch('/api/confirm-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+      name:document.getElementById('fullName').value,
+      email:document.getElementById('email').value,
+      phone:document.getElementById('dialCode').value+document.getElementById('phone').value,
+      centre:document.getElementById('appCentre').value,
+      purpose:document.getElementById('photoPurpose').value,
+      govRef:document.getElementById('govRef').value,
+      photoToken:storeData.token,
+      paymentIntentId:paymentIntent.id,
+      printOption:selectedPrintOpt,
+      printLocation: selectedPrintOpt === 'print' ? 'LON-WILSON' : null,
+      source:'sabtech',
+      orderRef
+    })});
+    if(!res.ok){const e=await res.json();throw new Error(e.error||'Order failed');}
+    rtSet('pt3','done','Sent ✓');rtSet('pt4','done','Complete 🎉');
+    await delay(800);showSuccess(orderRef);
+  }catch(err){
+    rtSet('pt1','error','Failed');
+    setMsg('payStatus','Error: '+err.message,'error');
+    btn.disabled=false;document.getElementById('backBtn').disabled=false;btn.textContent='Pay £6.99';
+  }
+}
+
+function delay(ms){return new Promise(r=>setTimeout(r,ms));}
+function canvasToBase64(canvas,type,quality){return new Promise(r=>canvas.toBlob(b=>{const fr=new FileReader();fr.onload=e=>r(e.target.result);fr.readAsDataURL(b);},type,quality));}
+
+function showSuccess(ref){
+  document.getElementById('orderRef').textContent=ref;
+  document.getElementById('confirmEmail').textContent=document.getElementById('email').value;
+  document.getElementById('page4').style.display='none';
+  document.getElementById('pageSuccess').style.display='block';
+  for(let i=1;i<=4;i++){const el=document.getElementById('si'+i);el.classList.remove('active');el.classList.add('done');el.querySelector('.step-dot').innerHTML=CHECK;}
+  window.scrollTo({top:0,behavior:'smooth'});
+  document.getElementById('dlJpg').onclick=()=>{passC.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='passport_photo.jpg';a.click();},'image/jpeg',0.96);};
+  document.getElementById('dlStrip').onclick=()=>{stripC.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='passport_strip_4up.jpg';a.click();},'image/jpeg',0.96);};
+}
+</script>
+<div style="text-align:center;padding:2rem 1rem;font-size:12px;color:var(--silver);border-top:1px solid var(--platinum3);margin-top:1rem;max-width:560px;margin-left:auto;margin-right:auto;">
+  <p style="margin-bottom:8px;">© 2026 Sabtech Limited · Photobooth App</p>
+  <p>
+    <a href="/privacy.html" style="color:var(--silver);text-decoration:none;margin:0 8px;">Privacy Policy</a>·
+    <a href="/terms.html" style="color:var(--silver);text-decoration:none;margin:0 8px;">Terms &amp; Conditions</a>·
+    <a href="mailto:info@sabtech.co.uk" style="color:var(--silver);text-decoration:none;margin:0 8px;">Contact Us</a>
+  </p>
+  <p style="margin-top:8px;">Payments secured by Stripe · Photos deleted after delivery · UK GDPR compliant</p>
+</div>
+
+</body>
+</html>
