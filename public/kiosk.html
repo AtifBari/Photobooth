@@ -1,0 +1,445 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Photobooth App — Print Kiosk</title>
+<!-- QZ Tray -->
+<script src="https://cdn.jsdelivr.net/npm/qz-tray@2.2.4/qz-tray.js"></script>
+<!-- RSA signing for QZ Tray -->
+<script src="https://cdn.jsdelivr.net/npm/jsrsasign@10.9.0/lib/jsrsasign-all-min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:Arial,sans-serif;background:#0D1B2E;color:white;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;}
+.logo{font-size:28px;font-weight:bold;margin-bottom:8px;color:white;}
+.logo span{color:#F5D06A;}
+.location{font-size:13px;color:#8A8680;letter-spacing:2px;text-transform:uppercase;margin-bottom:40px;}
+.card{background:rgba(255,255,255,0.05);border:1px solid rgba(201,168,76,0.3);border-radius:16px;padding:40px;width:100%;max-width:480px;text-align:center;}
+.card h1{font-size:28px;font-weight:300;margin-bottom:8px;}
+.card h1 span{color:#F5D06A;}
+.card p{color:#8A8680;font-size:15px;margin-bottom:30px;}
+.code-display{font-size:36px;font-weight:bold;letter-spacing:8px;color:#F5D06A;background:rgba(0,0,0,0.3);border:2px solid rgba(201,168,76,0.4);border-radius:10px;padding:16px;margin-bottom:20px;min-height:72px;display:flex;align-items:center;justify-content:center;}
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px;}
+.key{padding:18px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.1);border-radius:10px;font-size:24px;font-weight:500;cursor:pointer;transition:all 0.15s;user-select:none;}
+.key:hover,.key:active{background:rgba(201,168,76,0.2);border-color:rgba(201,168,76,0.5);}
+.key.del{font-size:18px;color:#8A8680;}
+.key.clr{font-size:14px;color:#8A8680;}
+.btn{width:100%;padding:16px;border:none;border-radius:99px;font-size:16px;font-weight:600;cursor:pointer;margin-top:8px;transition:all 0.2s;}
+.btn-gold{background:linear-gradient(135deg,#F5D06A,#C8920A);color:#0A0A0A;}
+.btn-gold:hover{opacity:0.9;}
+.btn-ghost{background:transparent;color:#8A8680;border:1px solid rgba(255,255,255,0.1);}
+.msg{padding:12px;border-radius:8px;font-size:14px;margin-top:12px;display:none;}
+.msg.error{background:rgba(220,38,38,0.15);border:1px solid rgba(220,38,38,0.4);color:#fca5a5;display:block;}
+.msg.success{background:rgba(22,163,74,0.15);border:1px solid rgba(22,163,74,0.4);color:#86efac;display:block;}
+.order-box{background:rgba(255,255,255,0.05);border-radius:10px;padding:16px;text-align:left;margin:16px 0;}
+.order-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:14px;}
+.order-row:last-child{border:none;}
+.order-row label{color:#8A8680;}
+.loading{text-align:center;padding:40px;}
+.spinner{width:48px;height:48px;border:3px solid rgba(201,168,76,0.2);border-top-color:#F5D06A;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.success-icon{font-size:64px;margin-bottom:16px;}
+.hidden{display:none!important;}
+</style>
+</head>
+<body>
+
+<div class="logo">Photobooth<span>App</span></div>
+<div class="location" id="locationLabel">📍 LON-WILSON · London</div>
+<div id="printerStatus" style="font-size:12px;color:#8A8680;margin-bottom:20px;letter-spacing:1px;">⏳ Connecting to printer…</div>
+
+<!-- Step 1: Enter Code -->
+<div class="card" id="stepEntry">
+  <h1>Enter your <span>print code</span></h1>
+  <p>Check your email for the code — format: PBA-XXXXXX</p>
+  <div class="code-display" id="codeDisplay">_ _ _ _ _ _</div>
+  <div class="keypad">
+    <div class="key" onclick="kp('1')">1</div>
+    <div class="key" onclick="kp('2')">2</div>
+    <div class="key" onclick="kp('3')">3</div>
+    <div class="key" onclick="kp('4')">4</div>
+    <div class="key" onclick="kp('5')">5</div>
+    <div class="key" onclick="kp('6')">6</div>
+    <div class="key" onclick="kp('7')">7</div>
+    <div class="key" onclick="kp('8')">8</div>
+    <div class="key" onclick="kp('9')">9</div>
+    <div class="key clr" onclick="kc()">CLR</div>
+    <div class="key" onclick="kp('0')">0</div>
+    <div class="key del" onclick="kd()">⌫</div>
+  </div>
+  <button class="btn btn-gold" onclick="doVerify()">Verify Code →</button>
+  <div class="msg" id="entryMsg"></div>
+</div>
+
+<!-- Step 2: Loading -->
+<div class="card hidden" id="stepLoading">
+  <div class="loading">
+    <div class="spinner"></div>
+    <p>Verifying your code…</p>
+  </div>
+</div>
+
+<!-- Step 3: Confirm -->
+<div class="card hidden" id="stepConfirm">
+  <h1>Is this <span>your photo?</span></h1>
+  <p>Check your photo and details below before printing.</p>
+
+  <!-- Photo preview -->
+  <div style="margin:16px 0;text-align:center;">
+    <div style="font-size:11px;color:#8A8680;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Your Passport Photo</div>
+    <div style="display:inline-block;border:3px solid rgba(201,168,76,0.5);border-radius:10px;overflow:hidden;background:#1a1a1a;padding:4px;">
+      <img id="photoPreview" src="" style="width:200px;height:auto;display:block;border-radius:6px;" alt="Your photo"/>
+    </div>
+    <div style="font-size:12px;color:#8A8680;margin-top:8px;">4 copies will be printed on one 6×4 sheet</div>
+  </div>
+
+  <div class="order-box" id="orderBox"></div>
+  <div class="msg" id="confirmMsg"></div>
+
+  <!-- Two step confirmation -->
+  <button class="btn btn-gold" onclick="confirmAndPrint()" id="printBtn">✅ Yes — Print My Photo</button>
+  <button class="btn btn-ghost" onclick="goBack()" style="margin-top:8px;">❌ No — Try different code</button>
+</div>
+
+<!-- Step 4: Success -->
+<div class="card hidden" id="stepSuccess">
+  <div class="success-icon">✅</div>
+  <h1>Photo <span>printed!</span></h1>
+  <p style="margin-bottom:20px;">Collect your photo from the printer. This code cannot be used again.</p>
+  <button class="btn btn-gold" onclick="goBack()">Print another →</button>
+</div>
+
+<!-- Step 5: Error -->
+<div class="card hidden" id="stepError">
+  <div class="success-icon">⚠️</div>
+  <h1>Something went <span>wrong</span></h1>
+  <p id="errMsg" style="margin-bottom:20px;">Please try again.</p>
+  <button class="btn btn-gold" onclick="goBack()">Try Again →</button>
+</div>
+
+<script>
+var LOCATION = 'LON-WILSON';
+var digits = '';
+var currentCode = '';
+var currentOrder = null;
+var currentPhotoData = null;
+
+function show(id) {
+  ['stepEntry','stepLoading','stepConfirm','stepSuccess','stepError'].forEach(function(s) {
+    document.getElementById(s).classList.add('hidden');
+  });
+  document.getElementById(id).classList.remove('hidden');
+}
+
+function updateDisplay() {
+  var d = digits.padEnd(6,'_').split('').join(' ');
+  document.getElementById('codeDisplay').textContent = d;
+}
+
+function kp(n) {
+  if (digits.length < 6) { digits += n; updateDisplay(); }
+  if (digits.length === 6) setTimeout(doVerify, 400);
+}
+function kd() { if (digits.length > 0) { digits = digits.slice(0,-1); updateDisplay(); } }
+function kc() { digits = ''; updateDisplay(); }
+
+function goBack() {
+  digits = '';
+  updateDisplay();
+  document.getElementById('entryMsg').className = 'msg';
+  show('stepEntry');
+}
+
+async function doVerify() {
+  if (digits.length < 6) {
+    var el = document.getElementById('entryMsg');
+    el.textContent = 'Please enter all 6 digits.';
+    el.className = 'msg error';
+    return;
+  }
+  currentCode = 'PBA-' + digits;
+  show('stepLoading');
+  try {
+    // Verify code
+    var r = await fetch('/api/kiosk/verify-code', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({code: currentCode, locationId: LOCATION})
+    });
+    var d = await r.json();
+    if (!r.ok || !d.success) {
+      show('stepEntry');
+      var el = document.getElementById('entryMsg');
+      el.textContent = d.error || 'Invalid code. Please try again.';
+      el.className = 'msg error';
+      return;
+    }
+    currentOrder = d;
+
+    // Fetch photo for preview
+    var pr = await fetch('/api/kiosk/get-photo', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({code: currentCode, locationId: LOCATION})
+    });
+    var pd = await pr.json();
+
+    if (!pr.ok || !pd.success) {
+      show('stepEntry');
+      var el = document.getElementById('entryMsg');
+      el.textContent = pd.error || 'Photo not available. Please contact support.';
+      el.className = 'msg error';
+      return;
+    }
+
+    // Store photo data for printing
+    currentPhotoData = pd.photo;
+
+    // Show photo preview
+    document.getElementById('photoPreview').src = pd.photo;
+
+    // Build order details
+    var exp = new Date(d.expiresAt).toLocaleString('en-GB');
+    document.getElementById('orderBox').innerHTML =
+      '<div class="order-row"><label>Name</label><span>'+d.name+'</span></div>'+
+      '<div class="order-row"><label>Purpose</label><span>'+d.purpose.replace(/\s*—.*$/,'')+'</span></div>'+
+      '<div class="order-row"><label>Centre</label><span>'+d.centre+'</span></div>'+
+      '<div class="order-row"><label>Order Ref</label><span>'+d.orderRef+'</span></div>'+
+      '<div class="order-row"><label>Expires</label><span>'+exp+'</span></div>';
+
+    show('stepConfirm');
+  } catch(e) {
+    show('stepEntry');
+    var el = document.getElementById('entryMsg');
+    el.textContent = 'Connection error. Please try again.';
+    el.className = 'msg error';
+  }
+}
+
+async function confirmAndPrint() {
+  // Second confirmation
+  var btn = document.getElementById('printBtn');
+  btn.textContent = '⏳ Sending to printer…';
+  btn.disabled = true;
+  await doPrint();
+}
+
+// ── QZ Tray connection ────────────────────────────────────
+var qzConnected = false;
+var PRINTER_NAME = ''; // Auto-detect or set manually
+
+async function getPrinterName() {
+  try {
+    // Use exact printer name directly
+    var exactName = 'HP Neverstop Laser MFP 1202nw';
+    var printers = await qz.printers.find(exactName);
+    console.log('Printer search result:', printers);
+
+    if (printers && printers.length > 0) {
+      // qz.printers.find returns array — get full name
+      var name = Array.isArray(printers) ? printers[0] : printers;
+      console.log('Using printer:', name);
+      return name;
+    }
+
+    // Fallback to default
+    var defaultPrinter = await qz.printers.getDefault();
+    console.log('Using default printer:', defaultPrinter);
+    return defaultPrinter;
+  } catch(e) {
+    console.warn('Could not find printer:', e.message);
+    // Last resort — use hardcoded name
+    return 'HP Neverstop Laser MFP 1202nw';
+  }
+}
+
+async function connectQZ() {
+  if (qzConnected) return true;
+  try {
+    // Use QZ Tray demo certificate for development
+    qz.security.setCertificatePromise(function(resolve, reject) {
+      resolve('-----BEGIN CERTIFICATE-----\n' +
+        'MIIECzCCAvOgAwIBAgIGAZ5OfRrDMA0GCSqGSIb3DQEBCwUAMIGiMQswCQYDVQQG\n' +
+        'EwJVUzELMAkGA1UECAwCTlkxEjAQBgNVBAcMCUNhbmFzdG90YTEbMBkGA1UECgwS\n' +
+        'UVogSW5kdXN0cmllcywgTExDMRswGQYDVQQLDBJRWiBJbmR1c3RyaWVzLCBMTEMx\n' +
+        'HDAaBgkqhkiG9w0BCQEWDXN1cHBvcnRAcXouaW8xGjAYBgNVBAMMEVFaIFRyYXkg\n' +
+        'RGVtbyBDZXJ0MB4XDTI2MDUyMTA3MDEyMloXDTQ2MDUyMTA3MDEyMlowgaIxCzAJ\n' +
+        'BgNVBAYTAlVTMQswCQYDVQQIDAJOWTESMBAGA1UEBwwJQ2FuYXN0b3RhMRswGQYD\n' +
+        'VQQKDBJRWiBJbmR1c3RyaWVzLCBMTEMxGzAZBgNVBAsMElFaIEluZHVzdHJpZXMs\n' +
+        'IExMQzEcMBoGCSqGSIb3DQEJARYNc3VwcG9ydEBxei5pbzEaMBgGA1UEAwwRUVog\n' +
+        'VHJheSBEZW1vIENlcnQwggEiMA0GCSqGSIb3DQEBAQUAA4IBDwAwggEKAoIBAQC9\n' +
+        'VkAhvufQMs5Z+nZnNURfp7apPk9g/TMOjd10FkUIteY7cuWm7Wfm39ajFMTKimfY\n' +
+        'AOlimZIKcYXZ6Zk/qnfQ9hV5SlPPKbCrUEsaqa+lyBFaJlU8aRtoFQKKMJL+7phl\n' +
+        'DobkzCfmDyEvc3ivBV2+yHU2gq1M3fvIBtr9tvgT+Nmu2Ni6+OVodEfbVJbTxEWO\n' +
+        '05LR1/PH7ciX0MsmDVTqwHheGSahsZwxHDdUDcDCJnIEgChJajwuDuLS30xzm1BU\n' +
+        'ocU8h8+oVTVER0JYz5yeZnyW2RuJLX2QRG/FUQvu/y1vI3Iuv2d/LILFP2RdNen9\n' +
+        'OtCNg6rG2Vi8LdcIsJJ7AgMBAAGjRTBDMBIGA1UdEwEB/wQIMAYBAf8CAQEwDgYD\n' +
+        'VR0PAQH/BAQDAgEGMB0GA1UdDgQWBBSN6D+qjUzImDwoGKh0GzofNUnCGjANBgkq\n' +
+        'hkiG9w0BAQsFAAOCAQEAEl/0IVbzEvA/BB4uh+cgvp6zAwwIVopDYfu8GwrsXTTM\n' +
+        'zROa/LxJZ2v2hEGg8PNesjJzqyItOvlVA7BmeoEqrZR7XKNJVPIcHCnvUixcxsjl\n' +
+        'ViZe/gzSgYsJiTkY2hY13f2fn9sKahBwSu/qMgm6DyLiVF+teL5tgzHgDK5wQFgC\n' +
+        'TEJPs23efB7WCkXhyEOlPthQmMNTqxi15enLqJpHh2yGV3vrcTeEtcoFkia+/DBU\n' +
+        'GTQooyLZyXLtxJBh3MJIEeFYR6HK3P8QC0+tc0nAqP+FUJ9cZ/sIt9Saw7As7Bdr\n' +
+        '8/bm7YMGyE92+oSklgFqw2PsJ1poy9PCJ0JbHBAEjQ==\n' +
+        '-----END CERTIFICATE-----');
+    });
+
+    var privateKey = '-----BEGIN PRIVATE KEY-----\n' +
+      'MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQC9VkAhvufQMs5Z\n' +
+      '+nZnNURfp7apPk9g/TMOjd10FkUIteY7cuWm7Wfm39ajFMTKimfYAOlimZIKcYXZ\n' +
+      '6Zk/qnfQ9hV5SlPPKbCrUEsaqa+lyBFaJlU8aRtoFQKKMJL+7phlDobkzCfmDyEv\n' +
+      'c3ivBV2+yHU2gq1M3fvIBtr9tvgT+Nmu2Ni6+OVodEfbVJbTxEWO05LR1/PH7ciX\n' +
+      '0MsmDVTqwHheGSahsZwxHDdUDcDCJnIEgChJajwuDuLS30xzm1BUocU8h8+oVTVE\n' +
+      'R0JYz5yeZnyW2RuJLX2QRG/FUQvu/y1vI3Iuv2d/LILFP2RdNen9OtCNg6rG2Vi8\n' +
+      'LdcIsJJ7AgMBAAECggEACfwCZcUrdE85koUiuU6VzHWLrGEczoCLsLjKdNS3zz3I\n' +
+      'ZloowiTC1en356Gwvv2NfFaP+CMhEGvsIxGugyz6JIrVlw/UW5hXOLGDRGSuXo+u\n' +
+      'WpKq7ASe7V4uRBtLpSXv42RguLALapZhqZ7tPk2KJAVuKPG7MdKC9IloAvkjG+ps\n' +
+      'UrvKsHzIB+gUZST4ArfCbZyBqMiram8admrvy4nHo8QWzb6fFzDoYXpiPuSiLvra\n' +
+      'pvi2/HfvMmK3WZjqGorVo3Mvj2KU30j5pizIEe/UvKIfW1HJuQcNtMa+SfqShjDV\n' +
+      '15rb+d+9kMbbCiaVWTOOdgjbA7Zqx3/I1o5Dsw+MAQKBgQDlnPoZMT8bz57zI77z\n' +
+      'vlFNKobRnsh81PefdKfWybWiZeIPr9ObgSStLs6/zz3blRI7ur2Ja0dTEdY2IxDU\n' +
+      'ArjlJIEfCIY06nlJVHmvT8Y66QcKL6Jn8zQNAp/61HLelaQ/X6JfPxy4y4Z7hKdE\n' +
+      'YH7eNZesPK59diuvUC5/HVYrJwKBgQDTGGFPOJRqb1f5qdqWqZ1BebZKSf+/A/XM\n' +
+      'SK+a/gDxg///ED17Sgg5f7o6Yx4Jpi/xaYLFmEpXwNIHCK0C2gAI8dghRaAamnaE\n' +
+      '43mOY7XsoxZDL2zYteq3+Son2bFmLnCOntwRZnimXfzbU2/dofs4Gz5Sysz+D+VX\n' +
+      'LKgQtceCjQKBgQCGK0b854jf4F8Z5h5TYTcypxHmdSjjwLH9K/ZTDMSk43HIBs7Y\n' +
+      'hAsBY2OOMzQLFj10R3cvUE96G+cW9UCFEh4mT0Ff9+QsEYLTtZfxN+U2USo66oC0\n' +
+      'yyj0HT+MGw4QQFKccW54x3EqDktD68ytqNEZWSmKjF7NkvqN04WH44WRawKBgQCZ\n' +
+      '5LI8cQEyPw4iA0RKhkkQzMyqiBwcg6SUU4FCO18ws4zTxGEuGqC4WnfHzS6+1hsp\n' +
+      'okQmDYpVQ0tauWZ4J7nSy41HZFz+SBGTe8rIlcSxSYwXWuG9c5I0oT+sYbZEyiJg\n' +
+      't0u0m8Hld6u5sbBiIY7mLmZXMWYU6j3GOdYkqIFUmQKBgQC7EqRJyE4oBQYlSv8C\n' +
+      'QOltGZGuljBShxsxvlZR/+cii1W4TwsC4rI5qMrH3tL0YSeSNDo8FOb1OY1LSJ0b\n' +
+      '/ivtQvggJznu9WiXKn5aM9ibxYoa4L9Q3PcAZQoFQ4v5PrRdzrLWYE2tuxhoPcFn\n' +
+      'R8YyI7PraiOsI7gC/cQA+2P9cg==\n' +
+      '-----END PRIVATE KEY-----';
+
+    qz.security.setSignatureAlgorithm('SHA512');
+    qz.security.setSignaturePromise(function(toSign) {
+      return function(resolve, reject) {
+        try {
+          var pk = KEYUTIL.getKey(privateKey);
+          var sig = new KJUR.crypto.Signature({'alg': 'SHA512withRSA'});
+          sig.init(pk);
+          sig.updateString(toSign);
+          var hex = sig.sign();
+          resolve(stob64(hextorstr(hex)));
+        } catch(e) {
+          console.warn('Signing error:', e);
+          resolve('');
+        }
+      };
+    });
+
+    if (!qz.websocket.isActive()) {
+      await qz.websocket.connect();
+    }
+    PRINTER_NAME = await getPrinterName();
+    qzConnected = true;
+    console.log('QZ Tray connected ✅ Printer:', PRINTER_NAME);
+    document.getElementById('printerStatus').textContent = '🟢 Printer ready: ' + PRINTER_NAME;
+    document.getElementById('printerStatus').style.color = '#86efac';
+    return true;
+  } catch(e) {
+    console.warn('QZ Tray not available:', e.message);
+    document.getElementById('printerStatus').textContent = '🔴 Printer offline — check QZ Tray is running';
+    document.getElementById('printerStatus').style.color = '#fca5a5';
+    return false;
+  }
+}
+
+async function doPrint() {
+  show('stepLoading');
+  try {
+    // Mark printed first
+    var mr = await fetch('/api/kiosk/mark-printed', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({code: currentCode, locationId: LOCATION})
+    });
+    var md = await mr.json();
+    if (!mr.ok || !md.success) {
+      document.getElementById('errMsg').textContent = md.error || 'Print failed.';
+      show('stepError'); return;
+    }
+
+    var photo = currentPhotoData;
+
+    // ── Try QZ Tray silent print first ───────────────────
+    var qzOk = await connectQZ();
+    if (qzOk && PRINTER_NAME) {
+      try {
+        var config = qz.configs.create(PRINTER_NAME, {
+          size: { width: 6, height: 4 },
+          units: 'in',
+          orientation: 'landscape',
+          margins: { top: 0, right: 0, bottom: 0, left: 0 },
+          colorType: 'color',
+          copies: 1,
+          scaleContent: true,
+          rasterize: true
+        });
+
+        // Build 4-up HTML print layout
+        var printHtml = `
+          <html>
+          <head>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            @page { size: 6in 4in; margin: 0; }
+            body { width: 6in; height: 4in; display: grid;
+                   grid-template-columns: 1fr 1fr;
+                   grid-template-rows: 1fr 1fr;
+                   background: white; }
+            .p { display: flex; align-items: center; justify-content: center;
+                 padding: 6px; border: 0.5px dashed #ddd; }
+            .p img { max-width: 100%; max-height: 100%; object-fit: contain; }
+          </style>
+          </head>
+          <body>
+            <div class="p"><img src="${photo}"/></div>
+            <div class="p"><img src="${photo}"/></div>
+            <div class="p"><img src="${photo}"/></div>
+            <div class="p"><img src="${photo}"/></div>
+          </body>
+          </html>
+        `;
+
+        var printData = [{
+          type: 'pixel',
+          format: 'html',
+          flavor: 'plain',
+          data: printHtml,
+          options: { pageWidth: 6, pageHeight: 4 }
+        }];
+
+        await qz.print(config, printData);
+        console.log('QZ Tray print sent ✅');
+        setTimeout(function(){ show('stepSuccess'); }, 1500);
+        return;
+      } catch(qzErr) {
+        console.warn('QZ print failed, falling back to dialog:', qzErr.message);
+      }
+    }
+
+    // ── Fallback: browser print dialog ───────────────────
+    var w = window.open('','_blank','width=700,height=500');
+    w.document.write('<html><head><style>*{margin:0;padding:0;box-sizing:border-box;}@page{size:6in 4in;margin:0;}body{width:6in;height:4in;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;background:white;}.p{display:flex;align-items:center;justify-content:center;padding:6px;border:0.5px dashed #ddd;}.p img{max-width:100%;max-height:100%;object-fit:contain;}</style></head><body>');
+    for(var i=0;i<4;i++) w.document.write('<div class="p"><img src="'+photo+'"/></div>');
+    w.document.write('<script>window.onload=function(){window.print();setTimeout(function(){window.close();},2000);};<\/script></body></html>');
+    w.document.close();
+    setTimeout(function(){ show('stepSuccess'); }, 3000);
+
+  } catch(e) {
+    document.getElementById('errMsg').textContent = 'Connection error. Please try again.';
+    show('stepError');
+  }
+}
+
+// Try connecting QZ on page load
+window.addEventListener('load', function() {
+  setTimeout(connectQZ, 2000);
+});
+</script>
+</body>
+</html>
