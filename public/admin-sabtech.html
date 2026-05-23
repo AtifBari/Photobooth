@@ -1,0 +1,765 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Sabtech Admin Portal</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+:root{
+  --navy:#1a5c2e;--navy2:#122038;--navy3:#1a2d4a;
+  --platinum:#c8d0da;--platinum2:#dde3ea;--platinum3:#eef1f4;
+  --silver:#8a9bb0;--white:#fff;--cream:#f8f9fb;
+  --green:#16a34a;--green-bg:#f0fdf4;--green-border:#bbf7d0;
+  --red:#dc2626;--red-bg:#fef2f2;--red-border:#fecaca;
+  --amber:#92400e;--amber-bg:#fffbeb;--amber-border:#fcd34d;
+  --blue:#1d4ed8;--blue-bg:#eff6ff;--blue-border:#bfdbfe;
+  --r:12px;--r-sm:8px;
+}
+body{font-family:'DM Sans',sans-serif;background:var(--cream);color:var(--navy);min-height:100vh;}
+
+/* ── Login ── */
+#loginScreen{
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:var(--navy);
+}
+.login-card{
+  background:var(--white);border-radius:20px;padding:2.5rem;
+  width:100%;max-width:380px;box-shadow:0 24px 64px rgba(0,0,0,0.3);
+  text-align:center;
+}
+.login-logo{
+  width:56px;height:56px;background:var(--navy);border-radius:14px;
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 1.25rem;
+}
+.login-logo svg{width:28px;height:28px;color:var(--platinum);}
+.login-card h1{font-family:'DM Serif Display',serif;font-size:24px;color:var(--navy);margin-bottom:4px;}
+.login-card p{font-size:13px;color:var(--silver);margin-bottom:1.75rem;}
+.login-card input{
+  width:100%;padding:12px 16px;margin-bottom:12px;
+  border:1px solid var(--platinum2);border-radius:var(--r-sm);
+  font-family:'DM Sans',sans-serif;font-size:14px;color:var(--navy);
+  outline:none;text-align:center;letter-spacing:2px;
+}
+.login-card input:focus{border-color:var(--navy);}
+.login-err{font-size:12px;color:var(--red);margin-bottom:10px;display:none;}
+
+/* ── App layout ── */
+#appScreen{display:none;}
+.sidebar{
+  width:220px;background:var(--navy);min-height:100vh;
+  position:fixed;top:0;left:0;z-index:50;
+  display:flex;flex-direction:column;
+}
+.sidebar-logo{
+  padding:1.25rem 1.25rem 1rem;
+  border-bottom:1px solid rgba(200,208,218,0.1);
+}
+.sidebar-logo h1{font-family:'DM Serif Display',serif;font-size:16px;color:var(--white);}
+.sidebar-logo p{font-size:10px;color:var(--silver);margin-top:2px;letter-spacing:0.5px;text-transform:uppercase;}
+.nav-link{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 16px;font-size:13px;font-weight:500;
+  color:rgba(200,208,218,0.7);cursor:pointer;
+  border-left:3px solid transparent;transition:all 0.2s;
+  text-decoration:none;
+}
+.nav-link:hover,.nav-link.active{
+  color:var(--white);background:rgba(255,255,255,0.06);
+  border-left-color:var(--platinum);
+}
+.nav-link svg{width:16px;height:16px;flex-shrink:0;}
+.nav-section{padding:12px 16px 6px;font-size:10px;font-weight:600;color:rgba(200,208,218,0.35);text-transform:uppercase;letter-spacing:1px;}
+.sidebar-footer{margin-top:auto;padding:12px 16px;border-top:1px solid rgba(200,208,218,0.1);}
+.logout-btn{font-size:12px;color:rgba(200,208,218,0.5);cursor:pointer;background:none;border:none;font-family:'DM Sans',sans-serif;}
+.logout-btn:hover{color:var(--platinum);}
+
+.main-content{margin-left:220px;padding:2rem;min-height:100vh;}
+
+/* ── Header ── */
+.page-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.75rem;}
+.page-header h2{font-family:'DM Serif Display',serif;font-size:24px;color:var(--navy);}
+.page-header p{font-size:13px;color:var(--silver);margin-top:2px;}
+
+/* ── Stats cards ── */
+.stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:1.75rem;}
+.stat-card{
+  background:var(--white);border:1px solid var(--platinum3);
+  border-radius:var(--r);padding:1.25rem;
+  box-shadow:0 1px 4px rgba(13,27,46,0.05);
+}
+.stat-card.highlight{background:var(--navy);border-color:var(--navy);}
+.stat-label{font-size:11px;font-weight:500;text-transform:uppercase;letter-spacing:0.8px;color:var(--silver);margin-bottom:8px;}
+.stat-card.highlight .stat-label{color:var(--platinum);}
+.stat-value{font-family:'DM Serif Display',serif;font-size:30px;color:var(--navy);}
+.stat-card.highlight .stat-value{color:var(--white);}
+.stat-sub{font-size:12px;color:var(--silver);margin-top:4px;font-weight:300;}
+.stat-card.highlight .stat-sub{color:var(--platinum);}
+
+/* ── Toolbar ── */
+.toolbar{
+  display:flex;align-items:center;gap:10px;
+  background:var(--white);border:1px solid var(--platinum3);
+  border-radius:var(--r);padding:12px 16px;
+  margin-bottom:16px;flex-wrap:wrap;
+}
+.toolbar input,.toolbar select{
+  padding:8px 12px;border:1px solid var(--platinum2);
+  border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;
+  font-size:13px;color:var(--navy);background:var(--cream);
+  outline:none;
+}
+.toolbar input:focus,.toolbar select:focus{border-color:var(--navy);}
+.toolbar input[type=text]{flex:1;min-width:180px;}
+.toolbar input[type=date]{width:140px;}
+.btn-sm{
+  padding:8px 16px;border-radius:var(--r-sm);
+  font-family:'DM Sans',sans-serif;font-size:13px;font-weight:500;
+  cursor:pointer;border:none;white-space:nowrap;
+}
+.btn-navy{background:var(--navy);color:var(--white);}
+.btn-navy:hover{background:var(--navy3);}
+.btn-outline{background:transparent;border:1px solid var(--platinum2);color:var(--silver);}
+.btn-outline:hover{background:var(--cream);}
+.btn-green{background:var(--green);color:var(--white);}
+.btn-green:hover{opacity:0.9;}
+
+/* ── Table ── */
+.table-wrap{
+  background:var(--white);border:1px solid var(--platinum3);
+  border-radius:var(--r);overflow:hidden;
+  box-shadow:0 1px 4px rgba(13,27,46,0.05);
+}
+table{width:100%;border-collapse:collapse;}
+thead{background:var(--navy);}
+thead th{
+  padding:11px 14px;text-align:left;
+  font-size:11px;font-weight:500;color:var(--platinum);
+  text-transform:uppercase;letter-spacing:0.8px;white-space:nowrap;
+}
+tbody tr{border-bottom:1px solid var(--platinum3);transition:background 0.15s;}
+tbody tr:last-child{border-bottom:none;}
+tbody tr:hover{background:var(--cream);}
+tbody td{padding:11px 14px;font-size:13px;color:var(--navy);}
+.td-ref{font-family:'DM Mono',monospace;font-size:12px;color:var(--navy3);}
+.td-name{font-weight:500;}
+.td-email{color:var(--silver);font-size:12px;}
+.td-amount{font-weight:600;color:var(--green);}
+
+/* ── Status badges ── */
+.badge{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:99px;font-size:11px;font-weight:500;}
+.badge-green{background:var(--green-bg);color:var(--green);}
+.badge-amber{background:var(--amber-bg);color:var(--amber);}
+.badge-red{background:var(--red-bg);color:var(--red);}
+.badge-blue{background:var(--blue-bg);color:var(--blue);}
+
+/* ── Action buttons ── */
+.action-btn{
+  padding:4px 10px;border-radius:6px;font-size:11px;font-weight:500;
+  cursor:pointer;border:none;font-family:'DM Sans',sans-serif;
+  transition:opacity 0.15s;
+}
+.action-btn:hover{opacity:0.8;}
+.ab-blue{background:var(--blue-bg);color:var(--blue);}
+.ab-red{background:var(--red-bg);color:var(--red);}
+
+/* ── Empty state ── */
+.empty-state{
+  text-align:center;padding:3rem;color:var(--silver);
+}
+.empty-state svg{width:40px;height:40px;margin:0 auto 12px;display:block;opacity:0.3;}
+
+/* ── Toast ── */
+.toast{
+  position:fixed;bottom:1.5rem;right:1.5rem;
+  background:var(--navy);color:var(--white);
+  padding:12px 20px;border-radius:var(--r-sm);
+  font-size:13px;font-weight:500;
+  box-shadow:0 8px 24px rgba(0,0,0,0.2);
+  transform:translateY(100px);opacity:0;
+  transition:all 0.3s;z-index:999;
+}
+.toast.show{transform:translateY(0);opacity:1;}
+
+/* ── Spinner ── */
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid transparent;border-top-color:currentColor;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:6px;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ── Pagination ── */
+.pagination{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-top:1px solid var(--platinum3);font-size:13px;color:var(--silver);}
+.page-btns{display:flex;gap:6px;}
+.page-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--platinum2);background:var(--white);font-size:12px;cursor:pointer;color:var(--navy);}
+.page-btn:hover,.page-btn.active{background:var(--navy);color:var(--white);border-color:var(--navy);}
+
+@media(max-width:768px){
+  .sidebar{width:100%;min-height:auto;position:relative;}
+  .main-content{margin-left:0;}
+  .stats-grid{grid-template-columns:1fr 1fr;}
+}
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN ── -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>
+      </svg>
+    </div>
+    <h1>Admin Portal</h1>
+    <p>Photobooth App · Sabtech</p>
+    <div class="login-err" id="loginErr">Incorrect password. Please try again.</div>
+    <input type="password" id="adminPassword" placeholder="Enter admin password" onkeydown="if(event.key==='Enter')doLogin()"/>
+    <button class="btn-sm btn-navy" style="width:100%;padding:12px;" onclick="doLogin()">Sign In →</button>
+  </div>
+</div>
+
+<!-- ── APP ── -->
+<div id="appScreen" style="display:flex;">
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <h1>Sabtech Admin</h1>
+      <p>Sabtech Orders</p>
+    </div>
+    <div style="padding:8px 0;flex:1;">
+      <div class="nav-section">Main</div>
+      <div class="nav-link active" onclick="showPage('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        Dashboard
+      </div>
+      <div class="nav-link" onclick="showPage('orders')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+        All Orders
+      </div>
+      <div class="nav-section">Finance</div>
+      <div class="nav-link" onclick="showPage('export')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export Data
+      </div>
+      <div class="nav-section">Tools</div>
+      <div class="nav-link" onclick="showPage('gratis')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+        Issue Gratis
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <button class="logout-btn" onclick="doLogout()">← Sign out</button>
+    </div>
+  </div>
+
+  <!-- Main content -->
+  <div class="main-content">
+
+    <!-- Dashboard -->
+    <div id="pageDashboard">
+      <div class="page-header">
+        <div><h2>Dashboard</h2><p id="dashDate">Loading…</p></div>
+        <button class="btn-sm btn-navy" onclick="loadData()"><span class="spinner" id="refreshSpin" style="display:none;"></span>Refresh</button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Today's Orders</div>
+          <div class="stat-value" id="statTodayCount">—</div>
+          <div class="stat-sub" id="statTodayRev">—</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">This Month</div>
+          <div class="stat-value" id="statMonthCount">—</div>
+          <div class="stat-sub" id="statMonthRev">—</div>
+        </div>
+        <div class="stat-card highlight">
+          <div class="stat-label">Total Revenue</div>
+          <div class="stat-value" id="statTotalRev">—</div>
+          <div class="stat-sub" id="statTotalCount">— orders</div>
+        </div>
+      </div>
+
+      <div class="page-header" style="margin-top:1.5rem;margin-bottom:1rem;">
+        <div><h2 style="font-size:18px;">Recent Orders</h2></div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Order Ref</th><th>Date</th><th>Customer</th>
+              <th>Purpose</th><th>Centre</th><th>Amount</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="recentOrdersBody">
+            <tr><td colspan="7"><div class="empty-state">Loading…</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Orders -->
+    <div id="pageOrders" style="display:none;">
+      <div class="page-header">
+        <div><h2>All Orders</h2><p id="orderCount">Loading…</p></div>
+      </div>
+
+      <div class="toolbar">
+        <input type="text" id="searchInput" placeholder="Search name, email, order ref…" oninput="filterOrders()"/>
+        <input type="date" id="dateFrom" onchange="filterOrders()"/>
+        <input type="date" id="dateTo" onchange="filterOrders()"/>
+        <select id="statusFilter" onchange="filterOrders()">
+          <option value="">All statuses</option>
+          <option value="completed">Completed</option>
+          <option value="pending">Pending</option>
+          <option value="refunded">Refunded</option>
+        </select>
+        <button class="btn-sm btn-outline" onclick="clearFilters()">Clear</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Order Ref</th><th>Date & Time</th><th>Customer</th>
+              <th>Purpose</th><th>Gov Ref</th><th>Amount</th>
+              <th>Email</th><th>Status</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="ordersBody">
+            <tr><td colspan="9"><div class="empty-state">Loading…</div></td></tr>
+          </tbody>
+        </table>
+        <div class="pagination">
+          <span id="paginationInfo">Showing 0 orders</span>
+          <div class="page-btns" id="pageBtns"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Export -->
+    <div id="pageExport" style="display:none;">
+      <div class="page-header">
+        <div><h2>Export Data</h2><p>Download order data for accounting and finance</p></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:700px;">
+
+        <div style="background:var(--white);border:1px solid var(--platinum3);border-radius:var(--r);padding:1.5rem;">
+          <div style="font-size:32px;margin-bottom:12px;">📊</div>
+          <h3 style="font-size:15px;margin-bottom:6px;">All Orders CSV</h3>
+          <p style="font-size:13px;color:var(--silver);margin-bottom:16px;font-weight:300;">Export all orders including customer details, amounts, and status.</p>
+          <button class="btn-sm btn-navy" onclick="exportCSV()">Download All Orders</button>
+        </div>
+
+        <div style="background:var(--white);border:1px solid var(--platinum3);border-radius:var(--r);padding:1.5rem;">
+          <div style="font-size:32px;margin-bottom:12px;">📅</div>
+          <h3 style="font-size:15px;margin-bottom:6px;">Date Range Export</h3>
+          <p style="font-size:13px;color:var(--silver);margin-bottom:12px;font-weight:300;">Export orders between specific dates for monthly accounts.</p>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <input type="date" id="exportFrom" style="padding:8px 10px;border:1px solid var(--platinum2);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;"/>
+            <input type="date" id="exportTo" style="padding:8px 10px;border:1px solid var(--platinum2);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:13px;"/>
+            <button class="btn-sm btn-green" onclick="exportDateRange()">Download Range</button>
+          </div>
+        </div>
+
+        <div style="background:var(--white);border:1px solid var(--platinum3);border-radius:var(--r);padding:1.5rem;">
+          <div style="font-size:32px;margin-bottom:12px;">📆</div>
+          <h3 style="font-size:15px;margin-bottom:6px;">This Month</h3>
+          <p style="font-size:13px;color:var(--silver);margin-bottom:16px;font-weight:300;">Quick export of current month's orders for monthly reconciliation.</p>
+          <button class="btn-sm btn-navy" onclick="exportThisMonth()">Download This Month</button>
+        </div>
+
+        <div style="background:var(--white);border:1px solid var(--platinum3);border-radius:var(--r);padding:1.5rem;">
+          <div style="font-size:32px;margin-bottom:12px;">📋</div>
+          <h3 style="font-size:15px;margin-bottom:6px;">CSV Columns Included</h3>
+          <ul style="font-size:12px;color:var(--silver);font-weight:300;line-height:2;padding-left:16px;">
+            <li>Order Reference</li>
+            <li>Date & Time</li>
+            <li>Customer Name & Email</li>
+            <li>Phone Number</li>
+            <li>Country & Application Centre</li>
+            <li>Photo Purpose</li>
+            <li>Government Reference</li>
+            <li>Amount (GBP)</li>
+            <li>Status & Email Sent</li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Gratis Page -->
+    <div id="pageGratis" style="display:none;">
+      <div class="page-header">
+        <div><h2>Issue Gratis / Complimentary Photo</h2><p>Send a completely free passport photo session to any customer</p></div>
+      </div>
+      <div style="max-width:560px;">
+        <div style="background:var(--white);border:1px solid var(--platinum3);border-radius:var(--r);padding:1.75rem;">
+          <div style="font-size:32px;margin-bottom:16px;">🎁</div>
+          <p style="font-size:13px;color:var(--silver);margin-bottom:1.5rem;font-weight:300;">Issue a complimentary passport photo session. The customer will receive an email with a free photo link — no payment required.</p>
+
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:11px;font-weight:500;color:var(--silver);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.8px;">Full Name *</label>
+            <input type="text" id="gratisName" placeholder="Customer full name" style="width:100%;padding:10px 14px;border:1px solid var(--platinum2);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;"/>
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:11px;font-weight:500;color:var(--silver);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.8px;">Email Address *</label>
+            <input type="email" id="gratisEmail" placeholder="customer@email.com" style="width:100%;padding:10px 14px;border:1px solid var(--platinum2);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;"/>
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:11px;font-weight:500;color:var(--silver);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.8px;">Photo Purpose</label>
+            <input type="text" id="gratisPurpose" placeholder="e.g. Indian Passport / PCC / Surrender" style="width:100%;padding:10px 14px;border:1px solid var(--platinum2);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;"/>
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:11px;font-weight:500;color:var(--silver);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.8px;">Application Centre</label>
+            <input type="text" id="gratisCentre" placeholder="e.g. VFS Global — London" style="width:100%;padding:10px 14px;border:1px solid var(--platinum2);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;"/>
+          </div>
+
+          <div style="margin-bottom:1rem;">
+            <label style="display:block;font-size:11px;font-weight:500;color:var(--silver);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.8px;">Internal Note (optional)</label>
+            <input type="text" id="gratisNote" placeholder="e.g. VIP customer, staff member, partner..." style="width:100%;padding:10px 14px;border:1px solid var(--platinum2);border-radius:var(--r-sm);font-family:'DM Sans',sans-serif;font-size:14px;outline:none;"/>
+          </div>
+
+          <div style="margin-bottom:1.5rem;padding:12px 14px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:var(--r-sm);">
+            <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;color:#166534;">
+              <input type="checkbox" id="gratisWithPrint" style="width:16px;height:16px;accent-color:#166534;"/>
+              <span>Include print option (Lon-Wilson kiosk)</span>
+            </label>
+          </div>
+
+          <div id="gratisMsg" style="display:none;padding:12px;border-radius:8px;font-size:13px;margin-bottom:12px;"></div>
+
+          <button class="btn-sm btn-green" style="width:100%;padding:12px;" onclick="issueGratis()">🎁 Send Complimentary Photo Link</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /main-content -->
+</div><!-- /appScreen -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+var adminToken = sessionStorage.getItem('adminToken') || '';
+var allOrders  = [];
+var PAGE_SIZE  = 20;
+var currentPage = 1;
+
+// ── Auto-login if token exists ───────────────────────────
+if (adminToken) showApp();
+
+// ── Login ────────────────────────────────────────────────
+function doLogin() {
+  var pw = document.getElementById('adminPassword').value;
+  fetch('/api/admin/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: pw, portal: 'sabtech' })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.token) {
+      adminToken = d.token;
+      sessionStorage.setItem('adminToken', adminToken);
+      document.getElementById('loginErr').style.display = 'none';
+      showApp();
+    } else {
+      document.getElementById('loginErr').style.display = 'block';
+    }
+  }).catch(function() {
+    document.getElementById('loginErr').style.display = 'block';
+  });
+}
+
+function showApp() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('appScreen').style.display = 'flex';
+  loadData();
+  document.getElementById('dashDate').textContent = new Date().toLocaleDateString('en-GB', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+}
+
+function doLogout() {
+  sessionStorage.removeItem('adminToken');
+  adminToken = '';
+  location.reload();
+}
+
+// ── Navigation ───────────────────────────────────────────
+function showPage(page) {
+  ['dashboard','orders','export','gratis'].forEach(function(p) {
+    document.getElementById('page' + p.charAt(0).toUpperCase() + p.slice(1)).style.display = 'none';
+  });
+  document.getElementById('page' + page.charAt(0).toUpperCase() + page.slice(1)).style.display = 'block';
+  document.querySelectorAll('.nav-link').forEach(function(el) { el.classList.remove('active'); });
+  event.currentTarget.classList.add('active');
+  if (page === 'orders') renderOrdersTable(allOrders);
+}
+
+// ── Load data ────────────────────────────────────────────
+function loadData() {
+  document.getElementById('refreshSpin').style.display = 'inline-block';
+  fetch('/api/admin/orders', { headers: { 'x-admin-token': adminToken } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      document.getElementById('refreshSpin').style.display = 'none';
+      if (d.orders) {
+        allOrders = d.orders;
+        renderStats(d.stats);
+        renderRecentOrders(d.orders.slice(0, 10));
+        renderOrdersTable(allOrders);
+      }
+    }).catch(function() {
+      document.getElementById('refreshSpin').style.display = 'none';
+      showToast('Failed to load data');
+    });
+}
+
+// ── Stats ────────────────────────────────────────────────
+function renderStats(s) {
+  document.getElementById('statTodayCount').textContent = s.todayCount;
+  document.getElementById('statTodayRev').textContent   = '£' + s.todayRevenue.toFixed(2) + ' today';
+  document.getElementById('statMonthCount').textContent  = s.monthCount;
+  document.getElementById('statMonthRev').textContent    = '£' + s.monthRevenue.toFixed(2) + ' this month';
+  document.getElementById('statTotalRev').textContent    = '£' + s.totalRevenue.toFixed(2);
+  document.getElementById('statTotalCount').textContent  = s.total + ' total orders';
+}
+
+// ── Recent orders ────────────────────────────────────────
+function renderRecentOrders(orders) {
+  var tbody = document.getElementById('recentOrdersBody');
+  if (!orders.length) {
+    tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>No orders yet</div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = orders.map(function(o) {
+    return '<tr>' +
+      '<td><span class="td-ref">' + o.orderRef + '</span></td>' +
+      '<td>' + fmtDate(o.date) + '</td>' +
+      '<td><div class="td-name">' + esc(o.name) + '</div><div class="td-email">' + esc(o.email) + '</div></td>' +
+      '<td>' + esc(o.purpose||'') + '</td>' +
+      '<td style="font-size:12px;color:var(--silver);">' + esc(short(o.centre||'',30)) + '</td>' +
+      '<td class="td-amount">£' + (o.amount||6.99).toFixed(2) + '</td>' +
+      '<td>' + statusBadge(o.status) + '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+// ── Orders table ─────────────────────────────────────────
+function renderOrdersTable(orders) {
+  var start  = (currentPage - 1) * PAGE_SIZE;
+  var paged  = orders.slice(start, start + PAGE_SIZE);
+  var tbody  = document.getElementById('ordersBody');
+  document.getElementById('orderCount').textContent = orders.length + ' orders found';
+
+  if (!paged.length) {
+    tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/></svg>No orders found</div></td></tr>';
+    renderPagination(0);
+    return;
+  }
+
+  tbody.innerHTML = paged.map(function(o) {
+    return '<tr>' +
+      '<td><span class="td-ref">' + o.orderRef + '</span></td>' +
+      '<td style="font-size:12px;color:var(--silver);">' + fmtDateTime(o.date) + '</td>' +
+      '<td><div class="td-name">' + esc(o.name) + '</div><div class="td-email">' + esc(o.email) + '</div></td>' +
+      '<td style="font-size:12px;">' + esc(o.purpose||'') + '</td>' +
+      '<td><span style="font-family:\'DM Mono\',monospace;font-size:11px;color:var(--navy3);">' + esc(o.govRef||'—') + '</span></td>' +
+      '<td class="td-amount">£' + (o.amount||6.99).toFixed(2) + '</td>' +
+      '<td>' + (o.emailSent ? '<span class="badge badge-green">✓ Sent</span>' : '<span class="badge badge-amber">Pending</span>') + '</td>' +
+      '<td>' + statusBadge(o.status) + '</td>' +
+      '<td style="white-space:nowrap;">' +
+        '<button class="action-btn ab-blue" onclick="resendEmail(\'' + o.orderRef + '\')">Resend</button> ' +
+        '<button class="action-btn" style="background:#166534;color:white;" onclick="issueRetake(\'' + o.orderRef + '\')">Free Retake</button>'
+        '<button class="action-btn ab-red" onclick="deleteOrder(\'' + o.orderRef + '\')">Delete</button>' +
+      '</td>' +
+      '</tr>';
+  }).join('');
+
+  renderPagination(orders.length);
+}
+
+function renderPagination(total) {
+  var pages = Math.ceil(total / PAGE_SIZE);
+  document.getElementById('paginationInfo').textContent = 'Showing ' + Math.min(PAGE_SIZE, total) + ' of ' + total + ' orders';
+  var btns = document.getElementById('pageBtns');
+  btns.innerHTML = '';
+  for (var i = 1; i <= Math.min(pages, 10); i++) {
+    var btn = document.createElement('button');
+    btn.className = 'page-btn' + (i === currentPage ? ' active' : '');
+    btn.textContent = i;
+    btn.onclick = (function(p) { return function() { currentPage = p; filterOrders(); }; })(i);
+    btns.appendChild(btn);
+  }
+}
+
+// ── Filters ──────────────────────────────────────────────
+function filterOrders() {
+  var search   = document.getElementById('searchInput').value.toLowerCase();
+  var status   = document.getElementById('statusFilter').value;
+  var dateFrom = document.getElementById('dateFrom').value;
+  var dateTo   = document.getElementById('dateTo').value;
+
+  var filtered = allOrders.filter(function(o) {
+    if (search && !(
+      (o.name||'').toLowerCase().includes(search) ||
+      (o.email||'').toLowerCase().includes(search) ||
+      (o.orderRef||'').toLowerCase().includes(search) ||
+      (o.govRef||'').toLowerCase().includes(search)
+    )) return false;
+    if (status   && o.status !== status) return false;
+    if (dateFrom && new Date(o.date) < new Date(dateFrom)) return false;
+    if (dateTo   && new Date(o.date) > new Date(dateTo + 'T23:59:59')) return false;
+    return true;
+  });
+
+  renderOrdersTable(filtered);
+}
+
+function clearFilters() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('statusFilter').value = '';
+  document.getElementById('dateFrom').value = '';
+  document.getElementById('dateTo').value = '';
+  currentPage = 1;
+  renderOrdersTable(allOrders);
+}
+
+// ── Actions ──────────────────────────────────────────────
+function issueGratis() {
+  var name    = document.getElementById('gratisName').value.trim();
+  var email   = document.getElementById('gratisEmail').value.trim();
+  var purpose = document.getElementById('gratisPurpose').value.trim();
+  var centre  = document.getElementById('gratisCentre').value.trim();
+  var note    = document.getElementById('gratisNote').value.trim();
+  var withPrint = document.getElementById('gratisWithPrint').checked;
+  var msgEl   = document.getElementById('gratisMsg');
+
+  if (!name || !email) {
+    msgEl.style.display = 'block';
+    msgEl.style.background = '#fef2f2';
+    msgEl.style.border = '1px solid #fecaca';
+    msgEl.style.color = '#dc2626';
+    msgEl.textContent = 'Name and email are required.';
+    return;
+  }
+
+  fetch('/api/admin/issue-gratis', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+    body: JSON.stringify({ name: name, email: email, purpose: purpose, centre: centre, note: note, withPrint: withPrint })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.success) {
+      msgEl.style.display = 'block';
+      msgEl.style.background = '#f0fdf4';
+      msgEl.style.border = '1px solid #bbf7d0';
+      msgEl.style.color = '#166534';
+      msgEl.textContent = '✅ Complimentary link sent to ' + email;
+      document.getElementById('gratisName').value = '';
+      document.getElementById('gratisEmail').value = '';
+      document.getElementById('gratisPurpose').value = '';
+      document.getElementById('gratisCentre').value = '';
+      document.getElementById('gratisNote').value = '';
+      document.getElementById('gratisWithPrint').checked = false;
+    } else {
+      msgEl.style.display = 'block';
+      msgEl.style.background = '#fef2f2';
+      msgEl.style.border = '1px solid #fecaca';
+      msgEl.style.color = '#dc2626';
+      msgEl.textContent = 'Error: ' + (d.error || 'Unknown error');
+    }
+  }).catch(function(err) {
+    msgEl.style.display = 'block';
+    msgEl.textContent = 'Error: ' + err.message;
+  });
+}
+function issueRetake(ref) {
+  if (!confirm('Issue a FREE retake for order ' + ref + '?\n\nThis will email the customer a free retake link valid for 7 days.')) return;
+  fetch('/api/admin/issue-retake', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+    body: JSON.stringify({ orderRef: ref })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.success) {
+      alert('✅ Free retake issued!\n\nRetake link sent to customer email.\n\nLink: ' + d.retakeUrl);
+      loadOrders();
+    } else {
+      alert('Error: ' + (d.error || 'Unknown error'));
+    }
+  }).catch(function(err) { alert('Error: ' + err.message); });
+}
+
+function resendEmail(ref) {
+  if (!confirm('Resend confirmation email for order ' + ref + '?')) return;
+  fetch('/api/admin/resend-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+    body: JSON.stringify({ orderRef: ref })
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    showToast(d.success ? '✓ Email resent successfully' : 'Failed: ' + d.error);
+    if (d.success) loadData();
+  });
+}
+
+function deleteOrder(ref) {
+  if (!confirm('Delete order ' + ref + '? This cannot be undone.')) return;
+  fetch('/api/admin/orders/' + ref, {
+    method: 'DELETE',
+    headers: { 'x-admin-token': adminToken }
+  }).then(function() {
+    showToast('Order deleted');
+    loadData();
+  });
+}
+
+// ── Export ───────────────────────────────────────────────
+function exportCSV(from, to) {
+  var url = '/api/admin/export?token=' + adminToken;
+  if (from) url += '&dateFrom=' + from;
+  if (to)   url += '&dateTo=' + to;
+  window.location.href = url;
+  showToast('⬇ Downloading CSV…');
+}
+
+function exportDateRange() {
+  var from = document.getElementById('exportFrom').value;
+  var to   = document.getElementById('exportTo').value;
+  if (!from || !to) { showToast('Please select both dates'); return; }
+  exportCSV(from, to);
+}
+
+function exportThisMonth() {
+  var now = new Date();
+  var from = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-01';
+  var to   = now.toISOString().split('T')[0];
+  exportCSV(from, to);
+}
+
+// ── Helpers ──────────────────────────────────────────────
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' });
+}
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  var d = new Date(iso);
+  return d.toLocaleDateString('en-GB', { day:'2-digit', month:'short' }) + ' ' + d.toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+}
+function short(str, len) { return str.length > len ? str.substring(0, len) + '…' : str; }
+function esc(str) { return (str||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function statusBadge(s) {
+  if (s === 'completed') return '<span class="badge badge-green">✓ Completed</span>';
+  if (s === 'refunded')  return '<span class="badge badge-red">Refunded</span>';
+  return '<span class="badge badge-amber">Pending</span>';
+}
+function showToast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, 3000);
+}
+</script>
+</body>
+</html>
