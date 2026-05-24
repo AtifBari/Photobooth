@@ -13,7 +13,7 @@ window._transformers = { AutoModel, AutoProcessor, RawImage, env };
 window._transformersReady = true;
 console.log('Transformers.js loaded ✅');
 </script>
-<script src="https://www.google.com/recaptcha/api.js?render=6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM"></script>
+<script src="https://www.google.com/recaptcha/api.js?render=6Lchr-gsAAAAAB837NThorU36zEPwdpaVjZIJxTt"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 :root{
@@ -1041,23 +1041,42 @@ function togglePayBtn() {
 
 function openWebcam() {
   var modal = document.createElement('div');
-  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;';
-  modal.innerHTML = '<video id="webcamVideo" autoplay playsinline style="max-width:90%;max-height:60vh;border-radius:12px;border:2px solid #F5D06A;"></video>' +
-    '<p style="color:rgba(255,255,255,0.6);font-size:13px;margin-top:12px;">Position your face in the centre</p>' +
-    '<div style="margin-top:16px;display:flex;gap:12px;">' +
-    '<button onclick="captureWebcam()" style="padding:14px 32px;background:linear-gradient(135deg,#F5D06A,#C8920A);color:#0A0A0A;border:none;border-radius:99px;font-size:16px;font-weight:600;cursor:pointer;">📸 Capture</button>' +
-    '<button onclick="closeWebcam()" style="padding:14px 32px;background:transparent;color:white;border:1px solid rgba(255,255,255,0.3);border-radius:99px;font-size:16px;cursor:pointer;">✕ Cancel</button>' +
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;';
+  modal.innerHTML = 
+    '<p style="color:rgba(255,255,255,0.5);font-size:12px;letter-spacing:1px;text-transform:uppercase;margin-bottom:16px;">Position your face inside the oval</p>' +
+    '<div style="position:relative;display:inline-block;">' +
+    '<video id="webcamVideo" autoplay playsinline style="width:340px;height:440px;object-fit:cover;border-radius:12px;display:block;"></video>' +
+    '<svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;" viewBox="0 0 340 440" xmlns="http://www.w3.org/2000/svg">' +
+    '<defs><mask id="ovalMask"><rect width="340" height="440" fill="white"/><ellipse cx="170" cy="185" rx="110" ry="145" fill="black"/></mask></defs>' +
+    '<rect width="340" height="440" fill="rgba(0,0,0,0.5)" mask="url(#ovalMask)"/>' +
+    '<ellipse cx="170" cy="185" rx="110" ry="145" fill="none" stroke="#22c55e" stroke-width="3" stroke-dasharray="8,4"/>' +
+    '<text x="170" y="370" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="11" font-family="Arial">Look straight · Neutral expression · No glasses</text>' +
+    '</svg>' +
+    '</div>' +
+    '<div style="margin-top:20px;display:flex;gap:12px;">' +
+    '<button onclick="captureWebcam()" style="padding:14px 40px;background:linear-gradient(135deg,#F5D06A,#C8920A);color:#0A0A0A;border:none;border-radius:99px;font-size:16px;font-weight:600;cursor:pointer;">📸 Capture</button>' +
+    '<button onclick="closeWebcam()" style="padding:14px 24px;background:transparent;color:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.2);border-radius:99px;font-size:15px;cursor:pointer;">✕</button>' +
     '</div><canvas id="webcamCanvas" style="display:none;"></canvas>';
   document.body.appendChild(modal);
   window._webcamModal = modal;
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: 1280, height: 720 } })
+
+  // Try environment camera first on mobile, user-facing on desktop
+  var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  var constraints = isMobile 
+    ? { video: { facingMode: 'environment', width: 1280, height: 720 } }
+    : { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } };
+
+  navigator.mediaDevices.getUserMedia(constraints)
     .then(function(stream) {
-      document.getElementById('webcamVideo').srcObject = stream;
+      var video = document.getElementById('webcamVideo');
+      video.srcObject = stream;
       window._webcamStream = stream;
+      return video.play();
     })
-    .catch(function() {
+    .catch(function(err) {
+      console.warn('Camera error:', err);
       closeWebcam();
-      document.getElementById('photoFileCamera').click();
+      alert('Camera not available. Please use "Choose from Gallery" to upload a photo.');
     });
 }
 
@@ -1583,7 +1602,7 @@ async function processPhoto(file) {
         fd.append('photo', file);
         if(typeof grecaptcha !== 'undefined') {
           try {
-            const token = await new Promise(resolve => grecaptcha.ready(() => grecaptcha.execute('6Ld71d4sAAAAAMZkqwqwv1LvoqwlbODISxMxQCpM',{action:'upload'}).then(resolve).catch(()=>resolve(''))));
+            const token = await new Promise(resolve => grecaptcha.ready(() => grecaptcha.execute('6Lchr-gsAAAAAB837NThorU36zEPwdpaVjZIJxTt',{action:'upload'}).then(resolve).catch(()=>resolve(''))));
             fd.append('recaptchaToken', token);
           } catch(e) { fd.append('recaptchaToken',''); }
         }
