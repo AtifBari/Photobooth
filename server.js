@@ -423,9 +423,9 @@ app.post('/api/create-payment-intent', rateLimit(30, 60000), function(req, res) 
   if (!name || !email || !email.includes('@')) return res.status(400).json({ error: 'Invalid details' });
 
   stripe.paymentIntents.create({
-    amount: amountPence,
-    currency: 'gbp',
-    metadata: { customer_name: name, customer_email: email, amount_pence: amountPence },
+    amount: amount,
+    currency: priceSet.currency,
+    metadata: { customer_name: name, customer_email: email, amount: amount, currency: currencyKey },
     receipt_email: email
   }).then(function(intent) {
     res.json({ clientSecret: intent.client_secret });
@@ -462,6 +462,11 @@ app.post('/api/confirm-order', rateLimit(10, 60000), function(req, res) {
   var printOption      = sanitise(req.body.printOption) || 'digital';
   var printLocation    = sanitise(req.body.printLocation) || null;
   var source           = sanitise(req.body.source) || 'direct';
+  var currency         = sanitise(req.body.currency) || 'GBP';
+  var currencySymbol   = currency === 'EUR' ? '€' : currency === 'USD' ? '$' : '£';
+  if (!PRICES[currency]) currency = 'GBP';
+  var priceData        = PRICES[currency];
+  var orderAmount      = printOption === 'print' ? priceData.print / 100 : priceData.digital / 100;
 
   if (!name||!email||!phone||!centre||!purpose||!photoToken||!paymentIntentId)
     return res.status(400).json({ error: 'Missing required fields' });
@@ -502,8 +507,8 @@ app.post('/api/confirm-order', rateLimit(10, 60000), function(req, res) {
       orderRef: orderRef, date: new Date(),
       name: name, email: email, phone: phone,
       centre: centre, purpose: purpose, govRef: govRef || '',
-      amount: printOption === 'print' ? 9.99 : 6.99,
-      currency: 'GBP', status: 'completed',
+      amount: orderAmount,
+      currency: currency, status: 'completed',
       source: source,
       paymentIntentId: paymentIntentId, emailSent: false,
       printOption: printOption,
@@ -727,7 +732,7 @@ app.post('/api/admin/issue-retake', function(req, res) {
     if (order.retakeIssued) return res.status(400).json({ error: 'Retake already issued for this order' });
 
     var retakeToken = require('crypto').randomBytes(24).toString('hex');
-    var retakeUrl = 'https://photoboothapp.co.uk/retake/' + retakeToken;
+    var retakeUrl = 'https://photobooth-v2.onrender.com/retake/' + retakeToken;
 
     return new Retake({
       token: retakeToken, orderRef: order.orderRef,
@@ -854,7 +859,7 @@ app.post('/api/admin/issue-gratis', function(req, res) {
   if (!email || !name) return res.status(400).json({ error: 'Name and email required' });
 
   var gratisToken = require('crypto').randomBytes(24).toString('hex');
-  var gratisUrl = 'https://photoboothapp.co.uk/retake/' + gratisToken;
+  var gratisUrl = 'https://photobooth-v2.onrender.com/retake/' + gratisToken;
 
   // Create a retake token for gratis order (same flow, different label)
   new Retake({
