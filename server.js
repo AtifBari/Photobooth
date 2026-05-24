@@ -413,12 +413,13 @@ app.post('/api/remove-bg', rateLimit(20, 60000), upload.single('photo'), functio
 
 // ── Create payment intent ─────────────────────────────────
 app.post('/api/create-payment-intent', rateLimit(30, 60000), function(req, res) {
-  var name  = sanitise(req.body.name);
-  var email = sanitise(req.body.email);
-  var amountPence = parseInt(req.body.amountPence) || parseInt(process.env.PRICE_PENCE) || 699;
-
-  // Only allow valid amounts
-  if (amountPence !== 699 && amountPence !== 999) amountPence = 699;
+  var name        = sanitise(req.body.name || '');
+  var email       = sanitise(req.body.email || '');
+  var currencyKey = (req.body.currency || 'GBP').toUpperCase();
+  if (!PRICES[currencyKey]) currencyKey = 'GBP';
+  var priceSet    = PRICES[currencyKey];
+  var printOption = req.body.printOption || 'digital';
+  var amount      = printOption === 'print' ? priceSet.print : priceSet.digital;
 
   if (!name || !email || !email.includes('@')) return res.status(400).json({ error: 'Invalid details' });
 
@@ -732,7 +733,7 @@ app.post('/api/admin/issue-retake', function(req, res) {
     if (order.retakeIssued) return res.status(400).json({ error: 'Retake already issued for this order' });
 
     var retakeToken = require('crypto').randomBytes(24).toString('hex');
-    var retakeUrl = 'https://photobooth-v2.onrender.com/retake/' + retakeToken;
+    var retakeUrl = 'https://photoboothapp.co.uk/retake/' + retakeToken;
 
     return new Retake({
       token: retakeToken, orderRef: order.orderRef,
@@ -859,7 +860,7 @@ app.post('/api/admin/issue-gratis', function(req, res) {
   if (!email || !name) return res.status(400).json({ error: 'Name and email required' });
 
   var gratisToken = require('crypto').randomBytes(24).toString('hex');
-  var gratisUrl = 'https://photobooth-v2.onrender.com/retake/' + gratisToken;
+  var gratisUrl = 'https://photoboothapp.co.uk/retake/' + gratisToken;
 
   // Create a retake token for gratis order (same flow, different label)
   new Retake({
