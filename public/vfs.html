@@ -5,7 +5,6 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
 <title>Photobooth App — VFS Global</title>
-
 <script src="https://js.stripe.com/v3/"></script>
 <script type="module">
 import { AutoModel, AutoProcessor, RawImage, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/dist/transformers.min.js';
@@ -253,7 +252,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--ink);min-he
       <option value="USD">🇺🇸 USD $</option>
     </select>
     <div style="text-align:right;"><div class="header-price-amt" id="headerPrice" style="font-size:18px;font-weight:800;letter-spacing:-0.3px;">From £6.99</div><div class="header-price-lbl">per photo</div></div>
-  </div>
+</div>
 </div>
 
 <div class="stepper">
@@ -544,7 +543,7 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--ink);min-he
       <div class="realtime-tracker" id="payTracker">
         <div class="rt-title">Processing your payment</div>
         <div class="rt-step" id="pt1"><div class="rt-icon">💳</div><div style="flex:1"><div class="rt-label">Authorising card</div><div class="rt-sub">Verifying with your bank</div></div><span class="rt-badge pending" id="pt1-badge">Waiting</span></div>
-        <div class="rt-step" id="pt2"><div class="rt-icon">💰</div><div style="flex:1"><div class="rt-label">Processing payment</div><div class="rt-sub" id="pt2Sub">Confirming charge</div></div><span class="rt-badge pending" id="pt2-badge">Waiting</span></div>
+        <div class="rt-step" id="pt2"><div class="rt-icon">💰</div><div style="flex:1"><div class="rt-label">Processing payment</div><div class="rt-sub">Confirming £6.99 charge</div></div><span class="rt-badge pending" id="pt2-badge">Waiting</span></div>
         <div class="rt-step" id="pt3"><div class="rt-icon">📧</div><div style="flex:1"><div class="rt-label">Sending photo by email</div><div class="rt-sub">Attaching passport photo to email</div></div><span class="rt-badge pending" id="pt3-badge">Waiting</span></div>
         <div class="rt-step" id="pt4"><div class="rt-icon">🎉</div><div style="flex:1"><div class="rt-label">Order complete</div><div class="rt-sub">Check your inbox!</div></div><span class="rt-badge pending" id="pt4-badge">Waiting</span></div>
       </div>
@@ -638,20 +637,7 @@ const VFS_CENTRES = [
   {country:'United Kingdom',city:'Glasgow',name:'UKVCAS — Glasgow'},
   {country:'United Kingdom',city:'Bristol',name:'UKVCAS — Bristol'},
   {country:'United Kingdom',city:'Leeds',name:'UKVCAS — Leeds'},
-  // United Kingdom — BLS International
-  {country:'United Kingdom',city:'London',name:'BLS International — London'},
-  {country:'United Kingdom',city:'Manchester',name:'BLS International — Manchester'},
-  {country:'United Kingdom',city:'Birmingham',name:'BLS International — Birmingham'},
-  {country:'United Kingdom',city:'Edinburgh',name:'BLS International — Edinburgh'},
-  {country:'United Kingdom',city:'Glasgow',name:'BLS International — Glasgow'},
-  // United Kingdom — TLScontact
-  {country:'United Kingdom',city:'London',name:'TLScontact — London'},
-  {country:'United Kingdom',city:'Manchester',name:'TLScontact — Manchester'},
-  {country:'United Kingdom',city:'Edinburgh',name:'TLScontact — Edinburgh'},
   // United Kingdom — Other
-  {country:'United Kingdom',city:'London',name:'Sopra Steria — London'},
-  {country:'United Kingdom',city:'Manchester',name:'Sopra Steria — Manchester'},
-  {country:'United Kingdom',city:'Birmingham',name:'Sopra Steria — Birmingham'},
   {country:'United Kingdom',city:'Other',name:'Other UK Application Centre'},
   // Portugal
   {country:'Portugal',city:'Lisbon',name:'VFS Global — Lisbon'},
@@ -1122,8 +1108,7 @@ function togglePayBtn() {
   if (terms && terms.checked && paymentIntentSecret) {
     payBtn.disabled = false;
     var isPrint = document.querySelector('input[name="printOption"]:checked').value === 'print';
-    var p = PRICES[currentCurrency] || PRICES['GBP'];
-    payBtn.textContent = 'Pay ' + (isPrint ? p.printLabel : p.digitalLabel);
+    payBtn.textContent = isPrint ? 'Pay £9.99' : 'Pay £6.99';
   }
 }
 
@@ -1146,11 +1131,11 @@ function togglePayBtn() {
 
 function openWebcam() {
   var modal = document.createElement('div');
-  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;';
+  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow-y:auto;padding:10px 0;';
   modal.innerHTML =
     '<p style="color:rgba(255,255,255,0.5);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;">Passport Photo Camera</p>' +
     '<div style="position:relative;display:inline-block;">' +
-    '<video id="webcamVideo" autoplay playsinline style="width:320px;height:420px;object-fit:cover;border-radius:12px;display:block;"></video>' +
+    '<video id="webcamVideo" autoplay playsinline style="width:min(320px,90vw);height:min(420px,65vh);object-fit:cover;border-radius:12px;display:block;"></video>' +
     '<svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;" viewBox="0 0 320 420" xmlns="http://www.w3.org/2000/svg">' +
     '<defs><mask id="ovalMask"><rect width="320" height="420" fill="white"/><ellipse cx="160" cy="175" rx="105" ry="138" fill="black"/></mask></defs>' +
     '<rect width="320" height="420" fill="rgba(0,0,0,0.55)" mask="url(#ovalMask)"/>' +
@@ -1160,8 +1145,8 @@ function openWebcam() {
     '<div id="camTipText" style="display:inline-block;background:rgba(0,0,0,0.7);color:white;font-size:13px;font-weight:600;padding:8px 16px;border-radius:99px;letter-spacing:0.2px;backdrop-filter:blur(8px);"></div>' +
     '</div>' +
     '</div>' +
-    '<div id="camChecklist" style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;justify-content:center;max-width:340px;"></div>' +
-    '<div style="margin-top:16px;display:flex;gap:12px;">' +
+    '<div id="camChecklist" style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;justify-content:center;max-width:90vw;"></div>' +
+    '<div style="margin-top:14px;display:flex;gap:12px;">' +
     '<button id="camCaptureBtn" onclick="captureWebcam()" style="padding:14px 40px;background:linear-gradient(135deg,#F5D06A,#C8920A);color:#0A0A0A;border:none;border-radius:99px;font-size:16px;font-weight:600;cursor:pointer;transition:opacity 0.2s;">📸 Capture</button>' +
     '<button onclick="closeWebcam()" style="padding:14px 24px;background:transparent;color:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.2);border-radius:99px;font-size:15px;cursor:pointer;">✕</button>' +
     '</div><canvas id="webcamCanvas" style="display:none;"></canvas>';
@@ -1231,8 +1216,8 @@ function openWebcam() {
 
   var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   var constraints = isMobile
-    ? { video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } } }
-    : { video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } } };
+    ? { video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } } }
+    : { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } };
 
   navigator.mediaDevices.getUserMedia(constraints)
     .then(function(stream) {
@@ -1260,38 +1245,14 @@ function captureWebcam() {
   document.body.appendChild(flash);
   setTimeout(function() { flash.style.opacity = '0'; setTimeout(function() { flash.remove(); }, 300); }, 100);
 
-  var vw = video.videoWidth;
-  var vh = video.videoHeight;
-
-  // Video element displays at 320x420 CSS px — scale to actual stream resolution
-  var scaleX = vw / 320;
-  var scaleY = vh / 420;
-
-  // Oval guide in display px: cx=160, cy=175, rx=105, ry=138 — map to stream coords
-  var faceCx = 160 * scaleX;
-  var faceCy = 175 * scaleY;
-  var faceRx = 105 * scaleX;
-  var faceRy = 138 * scaleY;
-
-  // Crop around face oval with 20% padding
-  var pad = 1.2;
-  var halfW = faceRx * pad;
-  var halfH = faceRy * pad;
-
-  var sx = Math.max(0, Math.round(faceCx - halfW));
-  var sy = Math.max(0, Math.round(faceCy - halfH));
-  var sw = Math.min(vw - sx, Math.round(halfW * 2));
-  var sh = Math.min(vh - sy, Math.round(halfH * 2));
-
   var canvas = document.getElementById('webcamCanvas');
-  canvas.width = sw;
-  canvas.height = sh;
-  canvas.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0);
   canvas.toBlob(function(blob) {
     closeWebcam();
     doPhoto(new File([blob], 'webcam.jpg', { type: 'image/jpeg' }));
-  }, 'image/jpeg', 0.97);
+  }, 'image/jpeg', 0.95);
 }
 
 function closeWebcam() {
@@ -1965,21 +1926,21 @@ function s3(){
   fetch('/api/create-payment-intent',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:name, email:email, recaptchaToken:'', amountPence:amountPence, printOption:printOpt, currency:currentCurrency})
+    body:JSON.stringify({name:name, email:email, recaptchaToken:'', amountPence:amountPence})
   }).then(function(r){ return r.json(); }).then(function(d){
     if(d.clientSecret){
       paymentIntentSecret = d.clientSecret;
-      payBtn.textContent = 'Pay ' + (PRICES[currentCurrency]||PRICES['GBP']).digitalLabel;
+      payBtn.textContent = 'Pay £6.99';
       var terms = document.getElementById('termsConsent');
       if (terms && terms.checked) payBtn.disabled = false;
     } else {
-      payBtn.textContent = 'Pay ' + (PRICES[currentCurrency]||PRICES['GBP']).digitalLabel;
+      payBtn.textContent = 'Pay £6.99';
       payBtn.disabled = true;
       setMsg('payStatus', 'Payment setup failed: ' + (d.error || 'Unknown error') + '. Please go back and try again.', 'error');
       console.error('Payment intent error:', d);
     }
   }).catch(function(err){
-    payBtn.textContent = 'Pay ' + (PRICES[currentCurrency]||PRICES['GBP']).digitalLabel;
+    payBtn.textContent = 'Pay £6.99';
     payBtn.disabled = true;
     setMsg('payStatus', 'Connection error. Please check your internet and try again.', 'error');
     console.error('Payment intent fetch error:', err);
@@ -2035,7 +1996,6 @@ async function doPayment(){
       paymentIntentId:paymentIntent.id,
       printOption:selectedPrintOpt,
       printLocation: selectedPrintOpt === 'print' ? 'LON-WILSON' : null,
-      currency: currentCurrency,
       source:'vfs',
       orderRef
     })});
