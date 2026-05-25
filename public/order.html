@@ -1127,21 +1127,23 @@ function togglePayBtn() {
   }
 }
 
-// ── Camera button — webcam on desktop, capture on mobile ──
+// ── Camera button — webcam modal with oval guide for ALL devices ──
 (function() {
-  var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-  if (isMobile) {
-    document.getElementById('photoFileCamera').setAttribute('capture', 'environment');
-  } else {
-    document.getElementById('takePhotoLabel').addEventListener('click', function(e) {
-      e.preventDefault();
-      if (!document.getElementById('photoConsent').checked) {
-        setMsg('photoStatus', 'Please tick the consent box above before taking a photo.', 'error');
-        return;
-      }
+  document.getElementById('takePhotoLabel').addEventListener('click', function(e) {
+    e.preventDefault();
+    if (!document.getElementById('photoConsent').checked) {
+      setMsg('photoStatus', 'Please tick the consent box above before taking a photo.', 'error');
+      return;
+    }
+    // Try webcam modal first (shows oval guide on all devices)
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       openWebcam();
-    });
-  }
+    } else {
+      // Fallback to native camera if getUserMedia not available
+      document.getElementById('photoFileCamera').setAttribute('capture', 'user');
+      document.getElementById('photoFileCamera').click();
+    }
+  });
 })();
 
 function openWebcam() {
@@ -1231,8 +1233,8 @@ function openWebcam() {
 
   var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   var constraints = isMobile
-    ? { video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } } }
-    : { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } };
+    ? { video: { facingMode: 'user', width: { ideal: 1080 }, height: { ideal: 1920 } } }
+    : { video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } } };
 
   navigator.mediaDevices.getUserMedia(constraints)
     .then(function(stream) {
@@ -1260,14 +1262,49 @@ function captureWebcam() {
   document.body.appendChild(flash);
   setTimeout(function() { flash.style.opacity = '0'; setTimeout(function() { flash.remove(); }, 300); }, 100);
 
+  var vw = video.videoWidth;
+  var vh = video.videoHeight;
+
+  // The video element is rendered at min(320px,90vw) x min(420px,65vh)
+  // Calculate actual rendered size to map oval coordinates correctly
+  var rendW = Math.min(320, window.innerWidth * 0.9);
+  var rendH = Math.min(420, window.innerHeight * 0.65);
+
+  // Scale from rendered pixels to actual stream pixels
+  var scaleX = vw / rendW;
+  var scaleY = vh / rendH;
+
+  // Oval in rendered px: cx=160, cy=175, rx=105, ry=138 (viewBox 320x420)
+  // Scale to actual rendered size first, then to stream
+  var ovalCx = (160 / 320) * rendW;
+  var ovalCy = (175 / 420) * rendH;
+  var ovalRx = (105 / 320) * rendW;
+  var ovalRy = (138 / 420) * rendH;
+
+  var faceCx = ovalCx * scaleX;
+  var faceCy = ovalCy * scaleY;
+  var faceRx = ovalRx * scaleX;
+  var faceRy = ovalRy * scaleY;
+
+  // Crop around face with 20% padding
+  var pad = 1.2;
+  var halfW = faceRx * pad;
+  var halfH = faceRy * pad;
+
+  var sx = Math.max(0, Math.round(faceCx - halfW));
+  var sy = Math.max(0, Math.round(faceCy - halfH));
+  var sw = Math.min(vw - sx, Math.round(halfW * 2));
+  var sh = Math.min(vh - sy, Math.round(halfH * 2));
+
   var canvas = document.getElementById('webcamCanvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0);
+  canvas.width = sw;
+  canvas.height = sh;
+  canvas.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+
   canvas.toBlob(function(blob) {
     closeWebcam();
     doPhoto(new File([blob], 'webcam.jpg', { type: 'image/jpeg' }));
-  }, 'image/jpeg', 0.95);
+  }, 'image/jpeg', 0.97);
 }
 
 function closeWebcam() {
