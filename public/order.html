@@ -1152,7 +1152,7 @@ function openWebcam() {
   modal.innerHTML =
     '<p style="color:rgba(255,255,255,0.5);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;">Passport Photo Camera</p>' +
     '<div style="position:relative;display:inline-block;">' +
-    '<video id="webcamVideo" autoplay playsinline style="width:min(320px,90vw);height:min(420px,65vh);object-fit:cover;border-radius:12px;display:block;"></video>' +
+    '<video id="webcamVideo" autoplay playsinline style="width:min(320px,90vw);height:min(420px,60vh);object-fit:cover;border-radius:12px;display:block;"></video>' +
     '<svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;" viewBox="0 0 320 420" xmlns="http://www.w3.org/2000/svg">' +
     '<defs><mask id="ovalMask"><rect width="320" height="420" fill="white"/><ellipse cx="160" cy="175" rx="105" ry="138" fill="black"/></mask></defs>' +
     '<rect width="320" height="420" fill="rgba(0,0,0,0.55)" mask="url(#ovalMask)"/>' +
@@ -1287,7 +1287,7 @@ function captureWebcam() {
   var faceRy = ovalRy * scaleY;
 
   // Crop around face with 20% padding
-  var pad = 1.2;
+  var pad = 1.6;  // More padding to capture top of head
   var halfW = faceRx * pad;
   var halfH = faceRy * pad;
 
@@ -1359,11 +1359,11 @@ function initCropEditor(file) {
 
       var baseZoom;
       if (isLandscape) {
-        // Landscape: scale so image height fills the viewport height — face will be centred
-        baseZoom = (vp * 0.85) / img.naturalHeight;
+        // Landscape: scale so image height fits with room — don't fill viewport
+        baseZoom = (vp * 0.60) / img.naturalHeight;
       } else {
-        // Portrait: scale so image width fits inside viewport with padding
-        baseZoom = (vp * 0.80) / img.naturalWidth;
+        // Portrait: scale so image fits with good padding around face
+        baseZoom = (vp * 0.55) / img.naturalWidth;
       }
 
       // Never exceed fitting the whole image in viewport (prevents clipping on tiny images)
