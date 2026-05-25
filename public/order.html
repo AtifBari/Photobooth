@@ -1348,8 +1348,28 @@ function initCropEditor(file) {
     var img = new Image();
     img.onload = function() {
       var vp = cropState.vpSize;
-      // Fit entire image inside viewport (show whole face)
-      var baseZoom = Math.min(vp / img.naturalWidth, vp / img.naturalHeight);
+
+      // Oval guide occupies rx=105, ry=138 inside a 300x300 viewport
+      // We want the face (roughly 70% of image height) to fill the oval height (138px)
+      // So target: image fits so its height = vp * 0.85 (slight padding outside oval)
+      // For landscape photos (wider than tall): fit by height
+      // For portrait photos: fit so whole face visible with padding
+
+      var isLandscape = img.naturalWidth > img.naturalHeight;
+
+      var baseZoom;
+      if (isLandscape) {
+        // Landscape: scale so image height fills the viewport height — face will be centred
+        baseZoom = (vp * 0.85) / img.naturalHeight;
+      } else {
+        // Portrait: scale so image width fits inside viewport with padding
+        baseZoom = (vp * 0.80) / img.naturalWidth;
+      }
+
+      // Never exceed fitting the whole image in viewport (prevents clipping on tiny images)
+      var fitZoom = Math.min(vp / img.naturalWidth, vp / img.naturalHeight);
+      baseZoom = Math.max(baseZoom, fitZoom);
+
       cropState.img      = img;
       cropState.rotation = 0;
       cropState.baseZoom = baseZoom;
@@ -1357,7 +1377,7 @@ function initCropEditor(file) {
       // Centre image in viewport
       cropState.x = (vp - img.naturalWidth  * baseZoom) / 2;
       cropState.y = (vp - img.naturalHeight * baseZoom) / 2;
-      // Slider starts at 100 = fit, max 300 = 3x zoom
+      // Slider starts at 100 = baseZoom, max 300 = 3x zoom
       document.getElementById('zoomSlider').min   = 100;
       document.getElementById('zoomSlider').max   = 300;
       document.getElementById('zoomSlider').value = 100;
