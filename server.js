@@ -82,7 +82,7 @@ var Retake = mongoose.model('Retake', retakeSchema);
 var printPhotoSchema = new mongoose.Schema({
   printCode:   { type: String, required: true, unique: true },
   photoData:   { type: String, required: true }, // base64 jpeg
-  createdAt:   { type: Date, default: Date.now, expires: 86400 } // auto-delete after 24h
+  createdAt:   { type: Date, default: Date.now, expires: 259200 } // auto-delete after 72h
 });
 var PrintPhoto = mongoose.model('PrintPhoto', printPhotoSchema);
 var locationSchema = new mongoose.Schema({
@@ -308,7 +308,7 @@ function storePrintPhoto(printCode, imgBuffer) {
   }).catch(function(e) { console.error('Print photo DB save error:', e.message); });
   // Also cache in memory for fast access
   printPhotoStore[printCode] = { buffer: imgBuffer, createdAt: Date.now() };
-  setTimeout(function() { delete printPhotoStore[printCode]; }, 24 * 60 * 60 * 1000);
+  setTimeout(function() { delete printPhotoStore[printCode]; }, 72 * 60 * 60 * 1000);
 }
 
 function getPrintPhoto(printCode) { return printPhotoStore[printCode] || null; }
@@ -500,7 +500,7 @@ app.post('/api/confirm-order', rateLimit(10, 60000), function(req, res) {
     var printCodeExpiry = null;
     if (printOption === 'print') {
       printCode = generatePrintCode();
-      printCodeExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+      printCodeExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000); // 72 hours
     }
 
     // Save to MongoDB
@@ -798,7 +798,7 @@ app.post('/api/retake/confirm', rateLimit(10, 60000), function(req, res) {
 
       if (isPrint) {
         newPrintCode = generatePrintCode();
-        newPrintCodeExpiry = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        newPrintCodeExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000);
         // Store photo for kiosk printing
         storePrintPhoto(newPrintCode, imgBuffer);
       }
