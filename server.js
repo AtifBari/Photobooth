@@ -165,7 +165,7 @@ app.use(function(req, res, next) {
     "font-src 'self' https://fonts.gstatic.com; " +
     "img-src 'self' data: blob: https:; " +
     "frame-src https://js.stripe.com https://www.google.com; " +
-    "connect-src 'self' https://api.stripe.com https://www.google.com https://cdn.jsdelivr.net https://ipapi.co wss://localhost:8181 wss://localhost:8182 ws://localhost:8181 ws://localhost:8182; " +
+    "connect-src 'self' https://api.stripe.com https://www.google.com https://cdn.jsdelivr.net https://ipapi.co https://huggingface.co https://*.huggingface.co wss://localhost:8181 wss://localhost:8182 ws://localhost:8181 ws://localhost:8182; " +
     "worker-src blob: 'self';"
   );
   next();
@@ -412,6 +412,13 @@ app.post('/api/remove-bg', rateLimit(20, 60000), upload.single('photo'), functio
 });
 
 // ── Create payment intent ─────────────────────────────────
+// ── Currency config ───────────────────────────────────────
+var PRICES = {
+  GBP: { digital: 699,  print: 999,  symbol: '£', currency: 'gbp' },
+  EUR: { digital: 829,  print: 1199, symbol: '€', currency: 'eur' },
+  USD: { digital: 899,  print: 1299, symbol: '$', currency: 'usd' }
+};
+
 app.post('/api/create-payment-intent', rateLimit(30, 60000), function(req, res) {
   var name        = sanitise(req.body.name || '');
   var email       = sanitise(req.body.email || '');
