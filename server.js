@@ -477,19 +477,18 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
     var imgBuffer = photoData.buffer;
     var bgAlreadyRemoved = photoData.bgRemoved;
 
-    // ── Step 3: Run remove.bg if needed (payment confirmed) ──
-    if (!bgAlreadyRemoved) {
-      console.log('[INFO] Running server-side remove.bg for order: ' + orderRef);
-      try {
-        var removedBuffer = await removeBackgroundServer(imgBuffer, 'image/jpeg');
-        imgBuffer = removedBuffer;
-        console.log('[INFO] Server-side background removal success for: ' + orderRef);
-      } catch(bgErr) {
-        // Log but don't fail the order — send original if remove.bg fails
-        Sentry.captureException(bgErr);
-        console.error('[ERROR] Server-side remove.bg failed for ' + orderRef + ':', bgErr.message);
-        // imgBuffer stays as the original — customer still gets their photo
-      }
+    // ── Step 3: Always run remove.bg server-side after payment ──
+    // Guarantees white background regardless of what client sent
+    console.log('[INFO] Running server-side remove.bg for order: ' + orderRef);
+    try {
+      var removedBuffer = await removeBackgroundServer(imgBuffer, 'image/jpeg');
+      imgBuffer = removedBuffer;
+      console.log('[INFO] Server-side background removal success for: ' + orderRef);
+    } catch(bgErr) {
+      // Log but don't fail the order — send original photo if remove.bg fails
+      Sentry.captureException(bgErr);
+      console.error('[ERROR] Server-side remove.bg failed for ' + orderRef + ':', bgErr.message);
+      // imgBuffer stays as original — customer still gets their photo
     }
 
     var firstName = name.split(' ')[0];
