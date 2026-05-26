@@ -479,16 +479,23 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
 
     // ── Step 3: Always run remove.bg server-side after payment ──
     // Guarantees white background regardless of what client sent
-    console.log('[INFO] Running server-side remove.bg for order: ' + orderRef);
+    console.log('[INFO] Running server-side remove.bg for order: ' + orderRef + ' imgSize=' + imgBuffer.length + 'bytes');
     try {
       var removedBuffer = await removeBackgroundServer(imgBuffer, 'image/jpeg');
+      if (!removedBuffer || removedBuffer.length < 1000) {
+        throw new Error('remove.bg returned empty or invalid response (' + (removedBuffer ? removedBuffer.length : 0) + ' bytes)');
+      }
       imgBuffer = removedBuffer;
-      console.log('[INFO] Server-side background removal success for: ' + orderRef);
+      console.log('[INFO] remove.bg success for: ' + orderRef + ' resultSize=' + imgBuffer.length + 'bytes');
     } catch(bgErr) {
-      // Log but don't fail the order — send original photo if remove.bg fails
+      // Log full error — very important for debugging
       Sentry.captureException(bgErr);
-      console.error('[ERROR] Server-side remove.bg failed for ' + orderRef + ':', bgErr.message);
-      // imgBuffer stays as original — customer still gets their photo
+      console.error('[ERROR] remove.bg FAILED for ' + orderRef + ': ' + bgErr.message);
+      if (bgErr.response) {
+        console.error('[ERROR] remove.bg response status: ' + bgErr.response.status);
+        console.error('[ERROR] remove.bg response data: ' + JSON.stringify(bgErr.response.data || ''));
+      }
+      // imgBuffer stays as original — order completes but without white background
     }
 
     var firstName = name.split(' ')[0];
@@ -582,7 +589,9 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
 
     deletePhoto(photoToken);
     Order.findOneAndUpdate({ orderRef: orderRef }, { emailSent: true }).catch(function(){});
-    res.json({ success: true, orderRef: orderRef, printCode: printCode });
+    // Return processed image to client so downloads also have white background
+    var processedImageBase64 = 'data:image/jpeg;base64,' + imgBuffer.toString('base64');
+    res.json({ success: true, orderRef: orderRef, printCode: printCode, processedImage: processedImageBase64 });
 
   } catch(err) {
     Sentry.captureException(err);
@@ -714,6 +723,28 @@ function generatePrintCode() {
 
 app.get('/api/health', function(req, res) {
   res.json({ status: 'ok', db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' });
+});
+
+// ── Test remove.bg connectivity (admin only) ──────────────
+app.get('/api/admin/test-removebg', adminAuth, async function(req, res) {
+  try {
+    // Make a minimal test call to remove.bg to check key and credits
+    var testResponse = await axios.get('https://api.remove.bg/v1.0/account', {
+      headers: { 'X-Api-Key': process.env.REMOVE_BG_KEY }
+    });
+    res.json({
+      ok: true,
+      credits_subscription: testResponse.data.data.attributes.credits.subscription,
+      credits_payg: testResponse.data.data.attributes.credits.payg,
+      credits_enterprise: testResponse.data.data.attributes.credits.enterprise
+    });
+  } catch(err) {
+    res.status(500).json({
+      ok: false,
+      error: err.response ? JSON.stringify(err.response.data) : err.message,
+      status: err.response ? err.response.status : 'no response'
+    });
+  }
 });
 
 // ── Free Retake Endpoints ─────────────────────────────────
