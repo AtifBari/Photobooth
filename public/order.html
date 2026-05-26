@@ -2040,8 +2040,20 @@ async function doPayment(){
       orderRef
     })});
     if(!res.ok){const e=await res.json();throw new Error(e.error||'Order failed');}
+    const orderData = await res.json();
+
+    // Rebuild canvases with server-processed white background image
+    if (orderData.processedImage) {
+      try {
+        await buildPassport(orderData.processedImage);
+        console.log('✅ Downloads updated with white background image');
+      } catch(e) {
+        console.warn('Canvas rebuild failed:', e.message);
+      }
+    }
+
     rtSet('pt3','done','Sent ✓');rtSet('pt4','done','Complete 🎉');
-    await delay(800);showSuccess(orderRef);
+    await delay(800);showSuccess(orderData.orderRef || orderRef);
   }catch(err){
     rtSet('pt1','error','Failed');
     setMsg('payStatus','Error: '+err.message,'error');
