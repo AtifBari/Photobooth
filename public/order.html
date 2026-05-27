@@ -1808,15 +1808,29 @@ async function buildPassport(imgData){
 
   const img=await loadImg(imgData);
   const iw=img.naturalWidth,ih=img.naturalHeight;
+
+  // Update removed canvas preview
   const rc=document.getElementById('removedCanvas');rc.width=300;rc.height=300;
   const rctx=rc.getContext('2d');rctx.clearRect(0,0,300,300);
   const side=Math.min(iw,ih);rctx.drawImage(img,(iw-side)/2,(ih-side)/2,side,side,0,0,300,300);
 
   passC=document.getElementById('passportCanvas');passC.width=outW;passC.height=outH;
   const pc=passC.getContext('2d');pc.fillStyle='#ffffff';pc.fillRect(0,0,outW,outH);
-  const scale=Math.max(outW/iw,(outH*0.92)/ih);const sw=iw*scale,sh=ih*scale;
-  pc.drawImage(img,(outW-sw)/2,outH*0.04,sw,sh);
+
+  // UK passport spec: face height = 29-34mm in a 45mm photo (64-76% of frame)
+  // Scale image so it occupies ~78% of canvas height — leaves headroom above, chin below
+  // Use Math.min (fit inside) not Math.max (fill/crop) to avoid cropping the head
+  const scale = Math.min(outW / iw, (outH * 0.78) / ih);
+  const sw = iw * scale;
+  const sh = ih * scale;
+
+  // Position: centre horizontally, start 6% from top (headroom)
+  const dx = (outW - sw) / 2;
+  const dy = outH * 0.06;
+
+  pc.drawImage(img, dx, dy, sw, sh);
   pc.strokeStyle='rgba(13,27,46,0.05)';pc.lineWidth=2;pc.strokeRect(4,4,outW-8,outH-8);
+
   // Update preview aspect ratio to match actual photo dimensions
   var passportWrap = document.querySelector('.passport-wrap');
   if (passportWrap) passportWrap.style.aspectRatio = outW + '/' + outH;
