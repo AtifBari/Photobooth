@@ -638,16 +638,7 @@ const VFS_CENTRES = [
   {country:'United Kingdom',city:'Glasgow',name:'UKVCAS — Glasgow'},
   {country:'United Kingdom',city:'Bristol',name:'UKVCAS — Bristol'},
   {country:'United Kingdom',city:'Leeds',name:'UKVCAS — Leeds'},
-  // United Kingdom — BLS International
-  {country:'United Kingdom',city:'London',name:'BLS International — London'},
-  {country:'United Kingdom',city:'Manchester',name:'BLS International — Manchester'},
-  {country:'United Kingdom',city:'Birmingham',name:'BLS International — Birmingham'},
-  {country:'United Kingdom',city:'Edinburgh',name:'BLS International — Edinburgh'},
-  {country:'United Kingdom',city:'Glasgow',name:'BLS International — Glasgow'},
-  // United Kingdom — TLScontact
-  {country:'United Kingdom',city:'London',name:'TLScontact — London'},
-  {country:'United Kingdom',city:'Manchester',name:'TLScontact — Manchester'},
-  {country:'United Kingdom',city:'Edinburgh',name:'TLScontact — Edinburgh'},
+
   // United Kingdom — Other
   {country:'United Kingdom',city:'London',name:'Sopra Steria — London'},
   {country:'United Kingdom',city:'Manchester',name:'Sopra Steria — Manchester'},
@@ -875,35 +866,12 @@ function filterCentresByCity(){
 
 // ── Centre to visa category mapping ──────────────────────
 const CENTRE_VISA_MAP = {
-  'BLS International': {
-    allowed: ['spain-visa'],
-    autoSelect: 'spain-visa',
-    label: 'BLS International handles Spain visas only'
-  },
-  'TLScontact': {
-    allowed: ['france-visa','germany-visa','switzerland-visa','belgium-visa','luxembourg-visa'],
-    autoSelect: null,
-    label: 'TLScontact handles France, Germany, Belgium, Luxembourg & Switzerland visas'
-  },
-  'VFS Global': {
-    allowed: null, // all except BLS/TLS countries
-    excluded: ['spain-visa','france-visa','germany-visa','switzerland-visa','belgium-visa','luxembourg-visa'],
-    label: null
-  },
-  'Sopra Steria': {
-    allowed: null, // UK visa/immigration only
-    label: null
-  },
-  'UKVCAS': {
-    allowed: null,
-    label: null
-  }
+  'VFS Global': { allowed: null, excluded: [], label: null },
+  'UKVCAS': { allowed: null, label: null }
 };
 
 function getCentreType(centreName) {
   if (!centreName) return null;
-  if (centreName.includes('BLS')) return 'BLS International';
-  if (centreName.includes('TLScontact') || centreName.includes('TLS')) return 'TLScontact';
   if (centreName.includes('VFS')) return 'VFS Global';
   if (centreName.includes('Sopra')) return 'Sopra Steria';
   if (centreName.includes('UKVCAS')) return 'UKVCAS';
