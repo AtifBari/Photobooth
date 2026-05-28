@@ -628,21 +628,11 @@ function setCurrency(code) {
 const VFS_CENTRES = [
   // United Kingdom — VFS Global
   {country:'United Kingdom',city:'London',name:'VFS Global — London (Multiple Missions)'},
-  {country:'United Kingdom',city:'London',name:'UK Visa & Citizenship Application Service (UKVCAS) — London'},
   {country:'United Kingdom',city:'Manchester',name:'VFS Global — Manchester'},
-  {country:'United Kingdom',city:'Manchester',name:'UKVCAS — Manchester'},
   {country:'United Kingdom',city:'Birmingham',name:'VFS Global — Birmingham'},
-  {country:'United Kingdom',city:'Birmingham',name:'UKVCAS — Birmingham'},
   {country:'United Kingdom',city:'Edinburgh',name:'VFS Global — Edinburgh'},
-  {country:'United Kingdom',city:'Edinburgh',name:'UKVCAS — Edinburgh'},
-  {country:'United Kingdom',city:'Glasgow',name:'UKVCAS — Glasgow'},
-  {country:'United Kingdom',city:'Bristol',name:'UKVCAS — Bristol'},
-  {country:'United Kingdom',city:'Leeds',name:'UKVCAS — Leeds'},
 
   // United Kingdom — Other
-  {country:'United Kingdom',city:'London',name:'Sopra Steria — London'},
-  {country:'United Kingdom',city:'Manchester',name:'Sopra Steria — Manchester'},
-  {country:'United Kingdom',city:'Birmingham',name:'Sopra Steria — Birmingham'},
   {country:'United Kingdom',city:'Other',name:'Other UK Application Centre'},
   // Portugal
   {country:'Portugal',city:'Lisbon',name:'VFS Global — Lisbon'},
@@ -867,14 +857,11 @@ function filterCentresByCity(){
 // ── Centre to visa category mapping ──────────────────────
 const CENTRE_VISA_MAP = {
   'VFS Global': { allowed: null, excluded: [], label: null },
-  'UKVCAS': { allowed: null, label: null }
 };
 
 function getCentreType(centreName) {
   if (!centreName) return null;
   if (centreName.includes('VFS')) return 'VFS Global';
-  if (centreName.includes('Sopra')) return 'Sopra Steria';
-  if (centreName.includes('UKVCAS')) return 'UKVCAS';
   return null;
 }
 
