@@ -2118,12 +2118,6 @@ async function processOrderAfterPayment(paymentIntent) {
 
   // Reset payment request for next order
   window._paymentRequest = null;
-}).catch(function(err){
-    payBtn.textContent = 'Pay ' + (PRICES[currentCurrency]||PRICES['GBP']).digitalLabel;
-    payBtn.disabled = true;
-    setMsg('payStatus', 'Connection error. Please check your internet and try again.', 'error');
-    console.error('Payment intent fetch error:', err);
-  });
 }
 
 async function doPayment(){
