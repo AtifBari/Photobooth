@@ -1565,7 +1565,8 @@ async function doPhoto(file) {
   if (!file.type.startsWith('image/')) { setMsg('photoStatus','Please select a JPEG or PNG image.','error'); return; }
   if (file.size > 10*1024*1024) { setMsg('photoStatus','Photo too large — please use under 10MB.','error'); return; }
   clearMsg('photoStatus');
-  // Show crop editor first
+  // Save original full-resolution file BEFORE crop reduces it to 300x300
+  rawPhotoFile = file;
   initCropEditor(file);
 }
 
@@ -1807,8 +1808,8 @@ async function processPhoto(file) {
   document.getElementById('rtTracker').classList.add('show');
   rtSet('rt1','active','Uploading…');rtSet('rt2','pending','Waiting');rtSet('rt3','pending','Waiting');rtSet('rt4','pending','Waiting');
 
-  // Store raw file — background removal happens server-side after payment via remove.bg
-  rawPhotoFile = file;
+  // bgRemovedClientSide always false — server handles remove.bg after payment
+  // rawPhotoFile is already set to the original full-res file in doPhoto()
   bgRemovedClientSide = false;
 
   try {
