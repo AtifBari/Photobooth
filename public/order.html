@@ -1187,9 +1187,9 @@ function openWebcam() {
     '<div style="position:relative;display:inline-block;">' +
     '<video id="webcamVideo" autoplay playsinline style="width:min(320px,90vw);height:min(420px,65vh);object-fit:cover;border-radius:12px;display:block;"></video>' +
     '<svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;" viewBox="0 0 320 420" xmlns="http://www.w3.org/2000/svg">' +
-    '<defs><mask id="ovalMask"><rect width="320" height="420" fill="white"/><ellipse cx="160" cy="170" rx="100" ry="128" fill="black"/></mask></defs>' +
+    '<defs><mask id="ovalMask"><rect width="320" height="420" fill="white"/><ellipse cx="160" cy="170" rx="130" ry="165" fill="black"/></mask></defs>' +
     '<rect width="320" height="420" fill="rgba(0,0,0,0.55)" mask="url(#ovalMask)"/>' +
-    '<ellipse id="faceOval" cx="160" cy="170" rx="100" ry="128" fill="none" stroke="#22c55e" stroke-width="3" stroke-dasharray="8,4"/>' +
+    '<ellipse id="faceOval" cx="160" cy="170" rx="130" ry="165" fill="none" stroke="#22c55e" stroke-width="3" stroke-dasharray="8,4"/>' +
     '</svg>' +
     '<div id="camTip" style="position:absolute;bottom:12px;left:0;right:0;text-align:center;">' +
     '<div id="camTipText" style="display:inline-block;background:rgba(0,0,0,0.7);color:white;font-size:13px;font-weight:600;padding:8px 16px;border-radius:99px;letter-spacing:0.2px;backdrop-filter:blur(8px);"></div>' +
@@ -1303,11 +1303,11 @@ function captureWebcam() {
   var scaleX = vw / rendW;
   var scaleY = vh / rendH;
 
-  // Oval in rendered px: cx=160, cy=170, rx=100, ry=128 (viewBox 320x420)
+  // Oval in rendered px: cx=160, cy=170, rx=130, ry=165 (viewBox 320x420)
   var ovalCx = (160 / 320) * rendW;
   var ovalCy = (170 / 420) * rendH;
-  var ovalRx = (100 / 320) * rendW;
-  var ovalRy = (128 / 420) * rendH;
+  var ovalRx = (130 / 320) * rendW;
+  var ovalRy = (165 / 420) * rendH;
 
   var faceCx = ovalCx * scaleX;
   var faceCy = ovalCy * scaleY;
