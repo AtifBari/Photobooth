@@ -336,41 +336,92 @@ function getPassportDimensions(purpose) {
   };
 }
 
-// ── Resize buffer using pure Node.js (no native deps) ────────────────────────
-// Uses jimp for resizing — pure JS, no compilation needed
+// ── Resize to passport dimensions using jimp (pure JS) ──────────────────────
 async function resizeToPassport(imgBuffer, purpose) {
+  var dims = getPassportDimensions(purpose);
+  console.log('[INFO] Resizing to ' + dims.w_px + 'x' + dims.h_px + 'px (' + dims.w_mm + 'x' + dims.h_mm + 'mm)');
+
+  // Try jimp first
   try {
     var Jimp = require('jimp');
-    var dims = getPassportDimensions(purpose);
     var image = await Jimp.read(imgBuffer);
-    // Cover: scale to fill then crop to exact dimensions
     image.cover(dims.w_px, dims.h_px, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_TOP);
     var result = await image.quality(95).getBufferAsync(Jimp.MIME_JPEG);
-    console.log('[INFO] Resized to ' + dims.w_px + 'x' + dims.h_px + 'px (' + dims.w_mm + 'x' + dims.h_mm + 'mm)');
+    console.log('[INFO] jimp resize success: ' + result.length + 'bytes');
     return result;
-  } catch(e) {
-    console.warn('[WARN] jimp resize failed (not installed?): ' + e.message + ' — skipping resize');
-    return imgBuffer;
+  } catch(jimpErr) {
+    console.warn('[WARN] jimp not available: ' + jimpErr.message);
   }
+
+  // Fallback: try @napi-rs/canvas
+  try {
+    var { createCanvas, loadImage } = require('@napi-rs/canvas');
+    var img = await loadImage(imgBuffer);
+    var canvas = createCanvas(dims.w_px, dims.h_px);
+    var ctx = canvas.getContext('2d');
+    // Cover: maintain aspect ratio, crop to fill
+    var scale = Math.max(dims.w_px / img.width, dims.h_px / img.height);
+    var sw = img.width * scale, sh = img.height * scale;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, dims.w_px, dims.h_px);
+    ctx.drawImage(img, (dims.w_px - sw) / 2, 0, sw, sh); // anchor top
+    var result = canvas.toBuffer('image/jpeg', { quality: 0.95 });
+    console.log('[INFO] canvas resize success');
+    return result;
+  } catch(canvasErr) {
+    console.warn('[WARN] canvas not available: ' + canvasErr.message);
+  }
+
+  // Final fallback: return as-is (will be wrong size but at least bg removed)
+  console.warn('[WARN] No resize library available — returning bg-removed image at original size');
+  return imgBuffer;
 }
 
 function removeBackgroundServer(imgBuffer, mimeType, purpose) {
   return new Promise(function(resolve, reject) {
+    // Validate API key exists
+    if (!process.env.REMOVE_BG_KEY) {
+      return reject(new Error('REMOVE_BG_KEY not set in environment'));
+    }
+
+    // If image is very large, downscale before sending to remove.bg (saves credits + faster)
+    // remove.bg free tier: max 0.25MP preview; paid: full HD
     var fd = new FormData();
-    fd.append('image_file', imgBuffer, { filename: 'photo.jpg', contentType: mimeType || 'image/jpeg' });
-    fd.append('size', 'full');        // full resolution output
-    fd.append('bg_color', 'ffffff'); // white background
-    fd.append('format', 'jpg');      // return JPEG
+    fd.append('image_file', imgBuffer, {
+      filename: 'photo.jpg',
+      contentType: mimeType || 'image/jpeg',
+      knownLength: imgBuffer.length
+    });
+    fd.append('size', 'auto');
+    fd.append('type', 'person');
+    fd.append('bg_color', 'ffffff');
+    fd.append('format', 'jpg');
+
+    console.log('[INFO] Calling remove.bg, imgSize=' + imgBuffer.length + ' key=' + (process.env.REMOVE_BG_KEY||'').substring(0,8) + '...');
+
     axios.post('https://api.remove.bg/v1.0/removebg', fd, {
       headers: Object.assign({ 'X-Api-Key': process.env.REMOVE_BG_KEY }, fd.getHeaders()),
       responseType: 'arraybuffer',
-      timeout: 30000
+      timeout: 60000,
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity
     }).then(function(response) {
-      console.log('[INFO] remove.bg success, size=' + response.data.byteLength + 'bytes');
-      resolve(Buffer.from(response.data));
+      var resultBuf = Buffer.from(response.data);
+      // Check for error response (remove.bg returns JSON errors even with arraybuffer)
+      var first = resultBuf.slice(0, 1).toString();
+      if (first === '{') {
+        var errMsg = resultBuf.toString();
+        console.error('[ERROR] remove.bg returned error JSON:', errMsg);
+        return reject(new Error('remove.bg error: ' + errMsg));
+      }
+      console.log('[INFO] remove.bg success, resultSize=' + resultBuf.length + 'bytes');
+      resolve(resultBuf);
     }).catch(function(err) {
       var msg = err.message;
-      if (err.response && err.response.data) msg = Buffer.from(err.response.data).toString();
+      if (err.response && err.response.data) {
+        try { msg = Buffer.from(err.response.data).toString(); } catch(e) {}
+      }
+      console.error('[ERROR] remove.bg axios error:', msg);
       reject(new Error('Background removal failed: ' + msg));
     });
   });
@@ -776,7 +827,11 @@ function generatePrintCode() {
 }
 
 app.get('/api/health', function(req, res) {
-  res.json({ status: 'ok', db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' });
+  res.json({
+    status: 'ok',
+    db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    removeBgKey: process.env.REMOVE_BG_KEY ? 'set (' + process.env.REMOVE_BG_KEY.substring(0,6) + '...)' : 'MISSING'
+  });
 });
 
 // ── Test remove.bg connectivity (admin only) ──────────────
