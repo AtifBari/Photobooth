@@ -332,31 +332,41 @@ function getPassportDimensions(purpose) {
   return {
     w_px: Math.round(w_mm / 25.4 * DPI),
     h_px: Math.round(h_mm / 25.4 * DPI),
-    w_mm: w_mm,
-    h_mm: h_mm
+    w_mm: w_mm, h_mm: h_mm
   };
+}
+
+// ── Resize buffer using pure Node.js (no native deps) ────────────────────────
+// Uses jimp for resizing — pure JS, no compilation needed
+async function resizeToPassport(imgBuffer, purpose) {
+  try {
+    var Jimp = require('jimp');
+    var dims = getPassportDimensions(purpose);
+    var image = await Jimp.read(imgBuffer);
+    // Cover: scale to fill then crop to exact dimensions
+    image.cover(dims.w_px, dims.h_px, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_TOP);
+    var result = await image.quality(95).getBufferAsync(Jimp.MIME_JPEG);
+    console.log('[INFO] Resized to ' + dims.w_px + 'x' + dims.h_px + 'px (' + dims.w_mm + 'x' + dims.h_mm + 'mm)');
+    return result;
+  } catch(e) {
+    console.warn('[WARN] jimp resize failed (not installed?): ' + e.message + ' — skipping resize');
+    return imgBuffer;
+  }
 }
 
 function removeBackgroundServer(imgBuffer, mimeType, purpose) {
   return new Promise(function(resolve, reject) {
-    var dims = getPassportDimensions(purpose);
     var fd = new FormData();
     fd.append('image_file', imgBuffer, { filename: 'photo.jpg', contentType: mimeType || 'image/jpeg' });
-    fd.append('size', 'auto');
-    fd.append('bg_color', 'ffffff');          // white background
-    fd.append('format', 'jpg');               // return JPEG
-    fd.append('crop', 'true');                // let remove.bg crop to subject
-    fd.append('crop_margin', '10%');          // small margin around subject
-    fd.append('scale', '80%');               // face occupies ~80% of frame
-    fd.append('position', 'top-half');        // keep face at top of frame
-    fd.append('output_width', String(dims.w_px));   // exact passport width in px
-    fd.append('output_height', String(dims.h_px));  // exact passport height in px
+    fd.append('size', 'full');        // full resolution output
+    fd.append('bg_color', 'ffffff'); // white background
+    fd.append('format', 'jpg');      // return JPEG
     axios.post('https://api.remove.bg/v1.0/removebg', fd, {
       headers: Object.assign({ 'X-Api-Key': process.env.REMOVE_BG_KEY }, fd.getHeaders()),
       responseType: 'arraybuffer',
       timeout: 30000
     }).then(function(response) {
-      console.log('[INFO] remove.bg output: ' + dims.w_px + 'x' + dims.h_px + 'px (' + dims.w_mm + 'x' + dims.h_mm + 'mm)');
+      console.log('[INFO] remove.bg success, size=' + response.data.byteLength + 'bytes');
       resolve(Buffer.from(response.data));
     }).catch(function(err) {
       var msg = err.message;
@@ -530,6 +540,8 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
       }
       imgBuffer = removedBuffer;
       console.log('[INFO] remove.bg success for: ' + orderRef + ' resultSize=' + imgBuffer.length + 'bytes');
+      // Resize to exact passport dimensions
+      imgBuffer = await resizeToPassport(imgBuffer, purpose);
     } catch(bgErr) {
       Sentry.captureException(bgErr);
       console.error('[ERROR] remove.bg FAILED for ' + orderRef + ': ' + bgErr.message);
