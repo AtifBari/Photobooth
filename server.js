@@ -345,7 +345,7 @@ async function resizeToPassport(imgBuffer, purpose) {
   try {
     var Jimp = require('jimp');
     var image = await Jimp.read(imgBuffer);
-    image.cover(dims.w_px, dims.h_px, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_TOP);
+    image.cover(dims.w_px, dims.h_px, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
     var result = await image.quality(95).getBufferAsync(Jimp.MIME_JPEG);
     console.log('[INFO] jimp resize success: ' + result.length + 'bytes');
     return result;
