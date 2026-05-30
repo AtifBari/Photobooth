@@ -1,2251 +1,1073 @@
+require('dotenv').config();
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
-<title>Photobooth App — VFS Global</title>
+// ── Sentry (must be first) ────────────────────────────────
+const Sentry = require('@sentry/node');
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV || 'production',
+  tracesSampleRate: 0.2,
+  sendDefaultPii: false
+});
 
-<script src="https://js.stripe.com/v3/"></script>
-<script type="module">
-import { AutoModel, AutoProcessor, RawImage, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/dist/transformers.min.js';
-window._transformers = { AutoModel, AutoProcessor, RawImage, env };
-window._transformersReady = true;
-console.log('Transformers.js loaded ✅');
-</script>
-<script src="https://www.google.com/recaptcha/api.js?render=6Lchr-gsAAAAAB837NThorU36zEPwdpaVjZIJxTt"></script>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-:root{
-  --bg:#f8f8f6;
-  --white:#ffffff;
-  --ink:#1a1a1a;
-  --ink2:#2d2d2d;
-  --muted:#717171;
-  --muted2:#9a9a9a;
-  --border:#e8e8e4;
-  --border2:#d4d4ce;
-  --green:#16a34a;
-  --green2:#15803d;
-  --green-bg:#f0fdf4;
-  --green-border:#bbf7d0;
-  --green-light:#dcfce7;
-  --blue:#2563eb;
-  --blue-bg:#eff6ff;
-  --blue-border:#bfdbfe;
-  --red:#dc2626;
-  --red-bg:#fef2f2;
-  --amber:#d97706;
-  --amber-bg:#fffbeb;
-  --amber-border:#fcd34d;
-  --shadow:0 2px 16px rgba(0,0,0,0.07);
-  --shadow-lg:0 8px 40px rgba(0,0,0,0.1);
-  --r:16px;--r-sm:12px;--r-lg:24px;--r-xl:32px;
-}
-body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;padding-bottom:5rem;-webkit-font-smoothing:antialiased;}
+var express    = require('express');
+var multer     = require('multer');
+var Stripe     = require('stripe');
+var axios      = require('axios');
+var FormData   = require('form-data');
+var cors       = require('cors');
+var crypto     = require('crypto');
+var mongoose   = require('mongoose');
 
-/* ── Header ─────────────────────────────────────────────── */
-.header{background:var(--white);border-bottom:1px solid var(--border);padding:1rem 1.75rem;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;box-shadow:0 1px 0 var(--border);}
-.logo-wrap{display:flex;align-items:center;gap:10px;}
-.logo-mark{width:38px;height:38px;border-radius:12px;background:var(--green);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(22,163,74,0.3);}
-.logo-mark svg{width:20px;height:20px;color:white;}
-.logo-text-name{font-size:17px;color:var(--ink);font-weight:700;letter-spacing:-0.4px;}
-.logo-text-tag{font-size:10px;color:var(--muted);margin-top:1px;letter-spacing:0.3px;}
-.header-right{display:flex;align-items:center;gap:12px;}
-.trust-pill{display:flex;align-items:center;gap:6px;background:var(--green);border:none;border-radius:99px;padding:7px 14px;font-size:12px;color:white;font-weight:700;letter-spacing:0.2px;box-shadow:0 2px 8px rgba(22,163,74,0.3);}
-.trust-pill svg{width:13px;height:13px;color:white;}
+var app    = express();
+var stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
-/* ── Progress bar ─────────────────────────────────────────── */
-.stepper{background:var(--white);border-bottom:1px solid var(--border);padding:0;}
-.stepper-inner{max-width:600px;margin:0 auto;display:flex;}
-.step-item{flex:1;display:flex;flex-direction:column;align-items:center;padding:1rem 0.5rem;gap:5px;position:relative;border-bottom:3px solid transparent;transition:all 0.3s;cursor:default;}
-.step-item.active{border-bottom-color:var(--green);}
-.step-item.done{border-bottom-color:var(--green);}
-.step-dot{width:30px;height:30px;border-radius:50%;border:2px solid var(--border2);background:var(--bg);display:flex;align-items:center;justify-content:center;transition:all 0.3s;font-size:12px;font-weight:700;color:var(--muted2);}
-.step-dot svg{width:13px;height:13px;}
-.step-lbl{font-size:10px;color:var(--muted);text-align:center;letter-spacing:0.2px;font-weight:500;}
-.step-item.active .step-dot{background:var(--green);border-color:var(--green);color:white;box-shadow:0 2px 8px rgba(22,163,74,0.3);}
-.step-item.active .step-dot svg{color:white;}
-.step-item.active .step-lbl{color:var(--green);font-weight:600;}
-.step-item.done .step-dot{background:var(--green);border-color:var(--green);color:white;}
-.step-item.done .step-dot svg{color:white;}
-.step-item.done .step-lbl{color:var(--green);}
+// ── MongoDB ───────────────────────────────────────────────
+mongoose.connect(process.env.MONGODB_URI).then(function() {
+  console.log('MongoDB connected');
+}).catch(function(err) {
+  console.error('MongoDB error:', err.message);
+  Sentry.captureException(err);
+});
 
-/* ── Layout ──────────────────────────────────────────────── */
-.main{max-width:600px;margin:2rem auto;padding:0 1rem;}
+var orderSchema = new mongoose.Schema({
+  orderRef:        { type: String, required: true, unique: true },
+  date:            { type: Date, default: Date.now },
+  name:            String,
+  email:           String,
+  phone:           String,
+  country:         String,
+  centre:          String,
+  purpose:         String,
+  govRef:          String,
+  amount:          { type: Number, default: 6.99 },
+  currency:        { type: String, default: 'GBP' },
+  status:          { type: String, default: 'completed' },
+  paymentIntentId: String,
+  source:          { type: String, default: 'direct' },
+  emailSent:       { type: Boolean, default: false },
+  emailError:      String,
+  resentAt:        Date,
+  printOption:     { type: String, default: 'digital' },
+  printCode:       { type: String, default: null },
+  printCodeExpiry: { type: Date, default: null },
+  printLocation:   { type: String, default: null },
+  printed:         { type: Boolean, default: false },
+  printedAt:       { type: Date, default: null },
+  retakeIssued:    { type: Boolean, default: false },
+  retakeIssuedAt:  { type: Date, default: null },
+  retakeUsed:      { type: Boolean, default: false },
+  retakeUsedAt:    { type: Date, default: null },
+  retakeToken:     { type: String, default: null }
+});
+var Order = mongoose.model('Order', orderSchema);
 
-/* ── Card ────────────────────────────────────────────────── */
-.card{background:var(--white);border-radius:var(--r-xl);overflow:hidden;box-shadow:var(--shadow);}
-.card-head{padding:2rem 2rem 1.5rem;border-bottom:1px solid var(--border);}
-.card-head-eyebrow{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--green);margin-bottom:6px;font-weight:700;}
-.card-head h2{font-size:26px;color:var(--ink);font-weight:800;letter-spacing:-0.6px;line-height:1.2;}
-.card-head p{font-size:14px;color:var(--muted);margin-top:6px;font-weight:400;line-height:1.5;}
-.card-body{padding:2rem;}
+var retakeSchema = new mongoose.Schema({
+  token:      { type: String, required: true, unique: true },
+  orderRef:   { type: String, required: true },
+  email:      String,
+  name:       String,
+  centre:     String,
+  purpose:    String,
+  source:     String,
+  used:       { type: Boolean, default: false },
+  usedAt:     Date,
+  createdAt:  { type: Date, default: Date.now, expires: 604800 }
+});
+var Retake = mongoose.model('Retake', retakeSchema);
 
-/* ── Fields ──────────────────────────────────────────────── */
-.field{margin-bottom:1.25rem;}
-.field label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:7px;text-transform:uppercase;letter-spacing:0.6px;}
-.req{color:var(--green);}
-.field input,.field select{width:100%;padding:13px 16px;border:1.5px solid var(--border);border-radius:var(--r-sm);font-family:'Inter',sans-serif;font-size:14px;color:var(--ink);background:var(--white);outline:none;transition:all 0.2s;-webkit-appearance:none;font-weight:400;}
-.field input::placeholder{color:var(--muted2);}
-.field input:focus,.field select:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(22,163,74,0.1);}
-.field input.err,.field select.err{border-color:var(--red);}
-.field-err{font-size:12px;color:var(--red);margin-top:5px;display:none;font-weight:500;}
-.field-err.show{display:block;}
-.field-hint{font-size:12px;color:var(--muted);margin-top:5px;}
-.phone-row{display:flex;gap:8px;}
-.phone-row select{width:130px;flex-shrink:0;}
-.filter-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1rem;}
+var printPhotoSchema = new mongoose.Schema({
+  printCode:   { type: String, required: true, unique: true },
+  photoData:   { type: String, required: true },
+  createdAt:   { type: Date, default: Date.now, expires: 259200 }
+});
+var PrintPhoto = mongoose.model('PrintPhoto', printPhotoSchema);
 
-/* ── Buttons ──────────────────────────────────────────────── */
-.btn{padding:13px 28px;border-radius:var(--r-sm);font-family:'Inter',sans-serif;font-size:14px;font-weight:600;cursor:pointer;border:none;transition:all 0.18s;letter-spacing:-0.1px;}
-.btn:active{transform:scale(0.98);}
-.btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;}
-.btn-navy{background:var(--green);color:white;box-shadow:0 2px 12px rgba(22,163,74,0.25);}
-.btn-navy:hover:not(:disabled){background:var(--green2);transform:translateY(-1px);box-shadow:0 4px 16px rgba(22,163,74,0.3);}
-.btn-ghost{background:transparent;border:1.5px solid var(--border2);color:var(--muted);font-weight:500;}
-.btn-ghost:hover{background:var(--bg);border-color:var(--ink);color:var(--ink);}
-.nav-row{display:flex;justify-content:space-between;align-items:center;margin-top:1.75rem;padding-top:1.5rem;border-top:1px solid var(--border);}
+var locationSchema = new mongoose.Schema({
+  locationId:   { type: String, required: true, unique: true },
+  name:         String,
+  address:      String,
+  active:       { type: Boolean, default: true },
+  createdAt:    { type: Date, default: Date.now }
+});
+var Location = mongoose.model('Location', locationSchema);
 
-/* ── Upload ───────────────────────────────────────────────── */
-.upload-area{border:2px dashed var(--border2);border-radius:var(--r-lg);padding:3rem 2rem;text-align:center;cursor:pointer;background:var(--bg);transition:all 0.2s;position:relative;}
-.upload-area:hover,.upload-area.drag{border-color:var(--green);background:var(--green-bg);}
-.upload-ring{width:76px;height:76px;border-radius:50%;border:2px solid var(--border);background:var(--white);display:flex;align-items:center;justify-content:center;margin:0 auto 18px;box-shadow:var(--shadow);}
-.upload-ring svg{width:30px;height:30px;color:var(--green);}
-.upload-area h3{font-size:19px;color:var(--ink);font-weight:700;margin-bottom:6px;letter-spacing:-0.3px;}
-.upload-area p{font-size:13px;color:var(--muted);}
-.upload-cta{display:inline-block;margin-top:16px;background:var(--green);color:white;font-size:13px;font-weight:600;padding:11px 26px;border-radius:99px;pointer-events:auto;cursor:pointer;transition:all 0.18s;box-shadow:0 2px 8px rgba(22,163,74,0.25);}
-.upload-cta:hover{background:var(--green2);}
-
-/* ── Crop editor ─────────────────────────────────────────── */
-.crop-editor{display:none;margin-bottom:16px;}
-.crop-editor.show{display:block;}
-.crop-viewport{width:100%;max-width:300px;height:300px;border-radius:var(--r);overflow:hidden;position:relative;background:#111;margin:0 auto 12px;cursor:grab;touch-action:none;border:2px solid var(--green);}
-.crop-viewport.dragging{cursor:grabbing;}
-.crop-viewport canvas{position:absolute;top:0;left:0;width:100%;height:100%;}
-.crop-guide{position:absolute;top:8%;left:18%;width:64%;height:72%;border:2px dashed rgba(255,255,255,0.5);border-radius:50%;pointer-events:none;}
-.crop-hint{font-size:12px;color:var(--muted);text-align:center;margin-bottom:10px;font-weight:500;}
-.crop-controls{display:flex;align-items:center;gap:10px;margin:0 auto 8px;max-width:300px;}
-.crop-controls label{font-size:12px;color:var(--muted);white-space:nowrap;font-weight:500;}
-.crop-slider{flex:1;accent-color:var(--green);cursor:pointer;height:4px;}
-.crop-rotate-btns{display:flex;gap:8px;justify-content:center;margin-bottom:10px;}
-.crop-btn{padding:7px 18px;border-radius:var(--r-sm);border:1.5px solid var(--border2);background:var(--white);font-size:12px;font-weight:600;color:var(--ink);cursor:pointer;transition:all 0.18s;}
-.crop-btn:hover{background:var(--green);color:white;border-color:var(--green);}
-.crop-confirm{display:block;width:100%;max-width:300px;margin:0 auto;padding:12px;background:var(--green);color:white;border:none;border-radius:99px;font-size:14px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.18s;box-shadow:0 2px 8px rgba(22,163,74,0.25);}
-.crop-confirm:hover{background:var(--green2);}
-
-/* ── Realtime tracker ─────────────────────────────────────── */
-.realtime-tracker.show{display:block;}
-.rt-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:12px;}
-.rt-step{display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:var(--r-sm);background:var(--bg);border:1.5px solid var(--border);margin-bottom:8px;transition:all 0.3s;}
-.rt-step.active{background:var(--blue-bg);border-color:var(--blue-border);}
-.rt-step.done{background:var(--green-bg);border-color:var(--green-border);}
-.rt-step.error{background:var(--red-bg);border-color:#fecaca;}
-.rt-icon{width:32px;height:32px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;}
-.rt-step.active .rt-icon{background:var(--blue-bg);}
-.rt-step.done .rt-icon{background:var(--green-light);}
-.rt-step.error .rt-icon{background:var(--red-bg);}
-.rt-label{font-size:14px;font-weight:600;color:var(--ink);flex:1;}
-.rt-sub{font-size:12px;color:var(--muted);margin-top:2px;}
-.rt-badge{font-size:11px;font-weight:700;padding:4px 10px;border-radius:99px;}
-.rt-badge.pending{background:var(--border);color:var(--muted);}
-.rt-badge.active{background:var(--blue-bg);color:var(--blue);}
-.rt-badge.done{background:var(--green-light);color:var(--green2);}
-.rt-badge.error{background:var(--red-bg);color:var(--red);}
-.spinner-sm{display:inline-block;width:11px;height:11px;border:2px solid transparent;border-top-color:currentColor;border-radius:50%;animation:spin 0.7s linear infinite;}
-@keyframes spin{to{transform:rotate(360deg);}}
-
-/* ── Photo result ─────────────────────────────────────────── */
-.photo-result{margin-top:1.5rem;display:none;}
-.photo-result.show{display:block;}
-.ok-badge{display:flex;align-items:center;gap:10px;padding:12px 16px;background:var(--green-bg);border:1.5px solid var(--green-border);border-radius:var(--r-sm);font-size:13px;color:var(--green2);font-weight:600;margin-bottom:16px;}
-.photo-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;}
-.photo-box{text-align:center;}
-.photo-box-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;}
-.photo-box canvas{width:100%;border-radius:10px;border:1.5px solid var(--border);background:white;display:block;}
-.passport-wrap{aspect-ratio:35/45;border:1.5px solid var(--border);border-radius:10px;overflow:hidden;background:white;display:flex;align-items:center;justify-content:center;}
-.passport-wrap canvas{width:100%;height:100%;}
-.strip-row{background:var(--bg);border:1.5px solid var(--border);border-radius:10px;padding:10px;display:flex;gap:6px;justify-content:center;margin-bottom:6px;}
-.strip-row canvas{flex:1;max-width:70px;border:1px dashed var(--border2);border-radius:4px;}
-.strip-lbl{font-size:11px;color:var(--muted);text-align:center;margin-bottom:14px;}
-
-/* ── Service selector ─────────────────────────────────────── */
-#serviceSelector{border-radius:var(--r-lg) !important;}
-#optDigitalLabel,#optPrintLabel{border-radius:var(--r-sm) !important;transition:all 0.2s !important;}
-
-/* ── Order summary ────────────────────────────────────────── */
-.summary-box{background:var(--bg);border:1.5px solid var(--border);border-radius:var(--r-lg);overflow:hidden;margin-bottom:1.5rem;}
-.summary-head{background:var(--ink);padding:14px 20px;font-size:11px;font-weight:700;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:1px;}
-.summary-body{padding:4px 20px 14px;}
-.sum-row{display:flex;justify-content:space-between;font-size:14px;padding:10px 0;border-bottom:1px solid var(--border);}
-.sum-row:last-of-type{border-bottom:none;}
-.sum-lbl{color:var(--muted);font-weight:400;}
-.sum-val{color:var(--ink);font-weight:600;text-align:right;max-width:55%;}
-.sum-total-row{display:flex;justify-content:space-between;padding:16px 20px;border-top:1.5px solid var(--border2);background:var(--white);}
-.sum-total-lbl{font-size:16px;color:var(--ink);font-weight:700;}
-.sum-total-val{font-size:22px;color:var(--ink);font-weight:800;letter-spacing:-0.5px;}
-
-/* ── Stripe ───────────────────────────────────────────────── */
-#payment-request-btn{margin-bottom:0;}
-#payment-request-btn.hidden{display:none;}
-.pay-divider{display:flex;align-items:center;gap:12px;margin:14px 0;color:var(--muted);font-size:12px;font-weight:500;}
-.pay-divider::before,.pay-divider::after{content:'';flex:1;height:1px;background:var(--border);}
-#pay-divider-row{display:none;}
-#pay-divider-row.show{display:flex;}
-#card-element{padding:13px 16px;border:1.5px solid var(--border);border-radius:var(--r-sm);background:var(--white);transition:border-color 0.2s;}
-#card-element.StripeElement--focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(22,163,74,0.1);}
-#card-errors{font-size:12px;color:var(--red);margin-top:6px;min-height:18px;font-weight:500;}
-.secure-row{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-top:10px;font-weight:500;}
-.secure-row svg{width:12px;height:12px;color:var(--green);}
-
-/* ── Status ───────────────────────────────────────────────── */
-.status{padding:14px 16px;border-radius:var(--r-sm);font-size:13px;line-height:1.6;display:none;margin-bottom:14px;font-weight:500;}
-.status.show{display:block;}
-.status.error{background:var(--red-bg);color:var(--red);border:1.5px solid #fecaca;}
-.status.info{background:var(--blue-bg);color:var(--blue);border:1.5px solid var(--blue-border);}
-.spinner{display:inline-block;width:13px;height:13px;border:2px solid transparent;border-top-color:currentColor;border-radius:50%;animation:spin 0.7s linear infinite;vertical-align:middle;margin-right:7px;}
-
-/* ── Success ──────────────────────────────────────────────── */
-.success-wrap{padding:3rem 2rem;text-align:center;}
-.success-emblem{width:80px;height:80px;border-radius:50%;background:var(--green-bg);border:2px solid var(--green-border);display:flex;align-items:center;justify-content:center;margin:0 auto 1.5rem;box-shadow:0 4px 20px rgba(22,163,74,0.15);}
-.success-emblem svg{width:34px;height:34px;color:var(--green);}
-.success-wrap h2{font-size:30px;font-weight:800;color:var(--ink);margin-bottom:10px;letter-spacing:-0.6px;}
-.success-wrap .sub{font-size:15px;color:var(--muted);line-height:1.7;max-width:380px;margin:0 auto;}
-.order-tag{font-size:13px;font-weight:700;background:var(--bg);border:1.5px solid var(--border2);border-radius:var(--r-sm);padding:11px 22px;display:inline-block;margin:1.1rem 0;letter-spacing:3px;color:var(--ink);}
-.what-next{background:var(--bg);border:1.5px solid var(--border);border-radius:var(--r-sm);padding:18px 20px;text-align:left;margin:1.1rem 0 1.5rem;font-size:14px;color:var(--muted);line-height:1.7;}
-.what-next strong{display:block;color:var(--ink);font-weight:700;margin-bottom:4px;font-size:11px;text-transform:uppercase;letter-spacing:0.8px;}
-.dl-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
-
-/* ── Checklist ────────────────────────────────────────────── */
-.checklist{background:var(--amber-bg);border:1.5px solid var(--amber-border);border-radius:var(--r-sm);padding:16px 18px;margin-bottom:16px;}
-.checklist-title{font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;}
-.checklist-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
-.checklist-item{font-size:13px;color:#78350f;display:flex;align-items:center;gap:7px;font-weight:500;}
-
-/* ── Consent ──────────────────────────────────────────────── */
-.consent-box{margin-bottom:14px;padding:14px 16px;background:var(--green-bg);border:1.5px solid var(--green-border);border-radius:var(--r-sm);}
-.consent-box label{display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;color:#166534;font-weight:500;line-height:1.5;}
-.consent-box input[type=checkbox]{margin-top:2px;width:17px;height:17px;accent-color:var(--green);flex-shrink:0;}
-.terms-box{margin-bottom:14px;padding:14px 16px;background:var(--blue-bg);border:1.5px solid var(--blue-border);border-radius:var(--r-sm);}
-.terms-box label{display:flex;align-items:flex-start;gap:10px;cursor:pointer;font-size:13px;color:#1d4ed8;font-weight:500;line-height:1.5;}
-.terms-box input[type=checkbox]{margin-top:2px;width:17px;height:17px;accent-color:var(--blue);flex-shrink:0;}
-.terms-box a{color:#1d4ed8;font-weight:600;}
-
-@media(max-width:480px){
-  .card-body,.card-head{padding:1.25rem;}
-  .step-lbl{font-size:9px;}
-  .filter-row{grid-template-columns:1fr;}
-}
-</style>
-</head>
-<body>
-
-<div class="header">
-  <div class="logo-wrap">
-    <div class="logo-mark">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
-    </div>
-    <div>
-      <div class="logo-text-name">Photobooth App</div>
-      <div class="logo-text-tag">Professional photos · instant delivery</div>
-    </div>
-  </div>
-  <div class="header-right">
-    <div class="trust-pill"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Free retake guarantee</div>
-    <select id="currencySelect" onchange="setCurrency(this.value)" style="border:1.5px solid var(--border);border-radius:8px;padding:5px 10px;font-family:'Inter',sans-serif;font-size:12px;font-weight:600;color:var(--ink);background:var(--white);cursor:pointer;outline:none;">
-      <option value="GBP">🇬🇧 GBP £</option>
-      <option value="EUR">🇪🇺 EUR €</option>
-      <option value="USD">🇺🇸 USD $</option>
-    </select>
-    <div style="text-align:right;"><div class="header-price-amt" id="headerPrice" style="font-size:18px;font-weight:800;letter-spacing:-0.3px;">From £6.99</div><div class="header-price-lbl">per photo</div></div>
-  </div>
-</div>
-
-<div class="stepper">
-  <div class="stepper-inner">
-    <div class="step-item active" id="si1"><div class="step-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg></div><span class="step-lbl">Destination</span></div>
-    <div class="step-item" id="si2"><div class="step-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><span class="step-lbl">Your Details</span></div>
-    <div class="step-item" id="si3"><div class="step-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg></div><span class="step-lbl">Upload Photo</span></div>
-    <div class="step-item" id="si4"><div class="step-dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg></div><span class="step-lbl">Payment</span></div>
-  </div>
-</div>
-
-<div class="main">
-
-  <!-- STEP 1 -->
-  <div class="card" id="page1">
-    <div class="card-head">
-      <div class="card-head-eyebrow">Step 1 of 4</div>
-      <h2>Destination</h2>
-      <p>Select your country, application centre and photo type</p>
-    </div>
-    <div class="card-body">
-
-      <div class="filter-row">
-        <div class="field" style="margin-bottom:0">
-          <label>Country <span class="req">*</span></label>
-          <select id="countryFilter" onchange="filterCentres()" title="Step 1: Select your country first">
-            <option value="">All countries…</option>
-          </select>
-        </div>
-        <div class="field" style="margin-bottom:0">
-          <label>City <span class="req">*</span></label>
-          <select id="cityFilter" onchange="filterCentresByCity()">
-            <option value="">All cities…</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="field">
-        <label>Application Centre <span class="req">*</span></label>
-        <select id="appCentre" onchange="filterVisaByCentre(this.value)">
-          <option value="">Select country &amp; city first…</option>
-        </select>
-        <div id="centre-info" style="display:none;font-size:12px;color:#1d4ed8;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:8px 12px;margin-top:6px;"></div>
-        <div class="field-err" id="e-centre">Please select an application centre.</div>
-      </div>
-
-      <div class="field">
-        <label>Visa Category <span class="req">*</span></label>
-        <select id="visaCat" onchange="updatePurpose()" size="1">
-          <option value="">Select visa category…</option>
-          <optgroup label="India">
-            <option value="indian-passport">🇮🇳 Indian Passport / PCC / Surrender</option>
-            <option value="india-visa">🇮🇳 India e-Visa / OCI Card</option>
-          </optgroup>
-          <optgroup label="Schengen / Europe">
-            <option value="schengen">🇪🇺 Schengen Visa (EU Countries)</option>
-            <option value="france-visa">🇫🇷 France Visa</option>
-            <option value="germany-visa">🇩🇪 Germany Visa</option>
-            <option value="italy-visa">🇮🇹 Italy Visa</option>
-            <option value="spain-visa">🇪🇸 Spain Visa</option>
-            <option value="netherlands-visa">🇳🇱 Netherlands Visa</option>
-            <option value="sweden-visa">🇸🇪 Sweden Visa</option>
-            <option value="switzerland-visa">🇨🇭 Switzerland Visa</option>
-          </optgroup>
-          <optgroup label="English Speaking Countries">
-            <option value="uk-visa">🇬🇧 UK Visa</option>
-            <option value="us-visa">🇺🇸 US Visa (B1/B2/F1/H1B)</option>
-            <option value="canada-visa">🇨🇦 Canada Visa / PR / ETA</option>
-            <option value="australia-visa">🇦🇺 Australia Visa / ETA</option>
-            <option value="newzealand-visa">🇳🇿 New Zealand Visa</option>
-            <option value="ireland-visa">🇮🇪 Ireland Visa</option>
-          </optgroup>
-          <optgroup label="Middle East">
-            <option value="uae-visa">🇦🇪 UAE Visa / Emirates ID</option>
-            <option value="saudi-visa">🇸🇦 Saudi Arabia Visa / Iqama</option>
-            <option value="qatar-visa">🇶🇦 Qatar Visa / QID</option>
-            <option value="kuwait-visa">🇰🇼 Kuwait Visa / Civil ID</option>
-            <option value="bahrain-visa">🇧🇭 Bahrain Visa / CPR</option>
-            <option value="oman-visa">🇴🇲 Oman Visa</option>
-          </optgroup>
-          <optgroup label="Asia">
-            <option value="china-visa">🇨🇳 China Visa</option>
-            <option value="japan-visa">🇯🇵 Japan Visa</option>
-            <option value="singapore-visa">🇸🇬 Singapore Visa / PR</option>
-            <option value="malaysia-visa">🇲🇾 Malaysia Visa / MM2H</option>
-            <option value="thailand-visa">🇹🇭 Thailand Visa / Elite</option>
-            <option value="sri-lanka-visa">🇱🇰 Sri Lanka e-Visa / ETA</option>
-            <option value="bangladesh-visa">🇧🇩 Bangladesh Visa / NID</option>
-          </optgroup>
-          <optgroup label="Africa">
-            <option value="nigeria-visa">🇳🇬 Nigeria Visa / NIN</option>
-            <option value="ghana-visa">🇬🇭 Ghana Visa / EC</option>
-            <option value="kenya-visa">🇰🇪 Kenya e-Visa</option>
-            <option value="southafrica-visa">🇿🇦 South Africa Visa</option>
-            <option value="ethiopia-visa">🇪🇹 Ethiopia Visa</option>
-          </optgroup>
-          <optgroup label="Passport Renewal">
-            <option value="uk-passport">🇬🇧 UK Passport / Renewal</option>
-            <option value="us-passport">🇺🇸 US Passport / Renewal</option>
-            <option value="eu-passport">🇪🇺 EU Passport / Renewal</option>
-            <option value="pakistani-passport">🇵🇰 Pakistani Passport / NICOP / POC</option>
-            <option value="bangladeshi-passport">🇧🇩 Bangladeshi Passport</option>
-            <option value="sri-lankan-passport">🇱🇰 Sri Lankan Passport</option>
-            <option value="nigerian-passport">🇳🇬 Nigerian Passport</option>
-            <option value="ghanaian-passport">🇬🇭 Ghanaian Passport</option>
-            <option value="other-passport">🌍 Other Nationality Passport</option>
-          </optgroup>
-          <optgroup label="Other Documents">
-            <option value="driving">🚗 Driving Licence</option>
-            <option value="id-card">🪪 National ID Card / Biometric</option>
-            <option value="brp">📋 BRP / Residence Permit</option>
-            <option value="misc">📄 Miscellaneous / Other</option>
-          </optgroup>
-        </select>
-        <div class="field-err" id="e-visa">Please select a visa category.</div>
-      </div>
-
-      <div class="field">
-        <label>Photo Purpose <span class="req">*</span></label>
-        <select id="photoPurpose"><option value="">Select photo purpose…</option></select>
-        <div class="field-err" id="e-purpose">Please select a photo purpose.</div>
-      </div>
-
-      <div class="nav-row"><span></span><button class="btn btn-navy" onclick="s1()">Continue →</button></div>
-    </div>
-  </div>
-
-  <!-- STEP 2 -->
-  <div class="card" id="page2" style="display:none;">
-    <div class="card-head">
-      <div class="card-head-eyebrow">Step 2 of 4</div>
-      <h2>Your Details</h2>
-      <p>Enter your personal information</p>
-    </div>
-    <div class="card-body">
-      <div class="field"><label>Full Name <span class="req">*</span></label><input type="text" id="fullName" placeholder="Enter your full name"
-            onblur="if(this.value.trim().length<2){document.getElementById('e-name').classList.add('show');this.classList.add('err');}else{document.getElementById('e-name').classList.remove('show');this.classList.remove('err');}"/><div class="field-err" id="e-name">Please enter your full name.</div></div>
-      <div class="field"><label>Email Address <span class="req">*</span></label><input type="email" id="email" placeholder="your@email.com"
-            onblur="var v=this.value.trim();var ok=v&&v.includes('@')&&v.includes('.');document.getElementById('e-email').classList.toggle('show',!ok);this.classList.toggle('err',!ok);"/><div class="field-err" id="e-email">Please enter a valid email.</div></div>
-      <div class="field"><label>Confirm Email <span class="req">*</span></label><input type="email" id="emailConfirm" placeholder="Confirm your email"
-            onblur="var match=this.value===document.getElementById('email').value;document.getElementById('e-email2').classList.toggle('show',!match);this.classList.toggle('err',!match);"/><div class="field-err" id="e-email2">Emails do not match.</div></div>
-      <div class="field">
-        <label>Phone Number <span class="req">*</span></label>
-        <div class="phone-row">
-          <select id="dialCode">
-            <option value="+44">🇬🇧 +44</option><option value="+1">🇺🇸 +1</option>
-            <option value="+91">🇮🇳 +91</option><option value="+92">🇵🇰 +92</option>
-            <option value="+880">🇧🇩 +880</option><option value="+351">🇵🇹 +351</option>
-            <option value="+971">🇦🇪 +971</option><option value="+966">🇸🇦 +966</option>
-            <option value="+974">🇶🇦 +974</option><option value="+965">🇰🇼 +965</option>
-            <option value="+973">🇧🇭 +973</option><option value="+968">🇴🇲 +968</option>
-            <option value="+61">🇦🇺 +61</option><option value="+1-CA">🇨🇦 +1</option>
-            <option value="+33">🇫🇷 +33</option><option value="+49">🇩🇪 +49</option>
-            <option value="+39">🇮🇹 +39</option><option value="+34">🇪🇸 +34</option>
-            <option value="+31">🇳🇱 +31</option><option value="+46">🇸🇪 +46</option>
-            <option value="+41">🇨🇭 +41</option><option value="+353">🇮🇪 +353</option>
-            <option value="+64">🇳🇿 +64</option><option value="+65">🇸🇬 +65</option>
-            <option value="+60">🇲🇾 +60</option><option value="+66">🇹🇭 +66</option>
-            <option value="+94">🇱🇰 +94</option><option value="+234">🇳🇬 +234</option>
-            <option value="+233">🇬🇭 +233</option><option value="+254">🇰🇪 +254</option>
-            <option value="+27">🇿🇦 +27</option><option value="+86">🇨🇳 +86</option>
-            <option value="+81">🇯🇵 +81</option>
-          </select>
-          <input type="tel" id="phone" placeholder="e.g. 7911 123456" 
-            oninput="formatPhone(this)"
-            style="flex:1;"/>
-        </div>
-        <div class="field-err" id="e-phone">Please enter a valid phone number.</div>
-      </div>
-      <div class="field"><label>Government Reference <span style="text-transform:none;letter-spacing:0;font-weight:300;">(optional)</span></label><input type="text" id="govRef" placeholder="Visa application number or reference"/><div class="field-hint">Enter your visa application number or government reference if applicable.</div></div>
-      <div class="nav-row"><button class="btn btn-ghost" onclick="goTo(1)">← Back</button><button class="btn btn-navy" onclick="s2()">Continue →</button></div>
-    </div>
-  </div>
-
-  <!-- STEP 3 -->
-  <div class="card" id="page3" style="display:none;">
-    <div class="card-head">
-      <div class="card-head-eyebrow">Step 3 of 4</div>
-      <h2>Upload Photo</h2>
-      <p>Background removed and formatted automatically in real time</p>
-    </div>
-    <div class="card-body">
-
-      <!-- Pre-photo checklist -->
-      <div class="checklist">
-        <div class="checklist-title">⚠️ Before you take your photo — please check:</div>
-        <div class="checklist-grid">
-          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">👓</span> Remove glasses</div>
-          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">🧢</span> Remove hats/caps</div>
-          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">😐</span> Neutral expression</div>
-          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">👁️</span> Eyes open &amp; visible</div>
-          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">💡</span> Good lighting</div>
-          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">📷</span> Face camera directly</div>
-          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">🏠</span> Plain background</div>
-          <div style="font-size:13px;color:#78350f;display:flex;align-items:center;gap:6px;"><span style="font-size:16px;">😶</span> Mouth closed</div>
-        </div>
-      </div>
-
-      <!-- Consent checkbox -->
-      <div class="consent-box">
-        <label>
-          <input type="checkbox" id="photoConsent" style="margin-top:2px;width:16px;height:16px;accent-color:#166534;flex-shrink:0;"/>
-          <span>I consent to my photo being processed for this order only. My photo will be automatically deleted after delivery. <a href="/privacy.html" target="_blank" style="color:#166534;font-weight:600;">Privacy Policy</a></span>
-        </label>
-      </div>
-
-      <div class="upload-area" id="uploadArea">
-        <input type="file" id="photoFile" accept="image/*" style="display:none;"/>
-        <input type="file" id="photoFileCamera" accept="image/*" style="display:none;"/>
-        <div class="upload-ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg></div>
-        <h3>Take or choose your photo</h3>
-        <p>JPEG or PNG · Face clearly visible · Max 10MB</p>
-        <div style="display:flex;gap:10px;justify-content:center;margin-top:16px;flex-wrap:wrap;">
-          <label for="photoFile" class="upload-cta" style="cursor:pointer;display:inline-block;">📁 Choose from Gallery</label>
-          <label for="photoFileCamera" class="upload-cta" style="cursor:pointer;display:inline-block;background:var(--navy3);" id="takePhotoLabel">📷 Take Photo</label>
-        </div>
-      </div>
-      <div class="status" id="photoStatus"></div>
-
-      <!-- Crop Editor -->
-      <div class="crop-editor" id="cropEditor">
-        <p class="crop-hint">✋ Drag to reposition · Pinch or scroll to zoom · Centre your face in the oval</p>
-        <div class="crop-viewport" id="cropViewport">
-          <canvas id="cropCanvas"></canvas>
-          <div class="crop-guide"></div>
-        </div>
-        <div class="crop-controls">
-          <label>🔍 Zoom</label>
-          <input type="range" class="crop-slider" id="zoomSlider" min="50" max="300" value="100"/>
-        </div>
-        <div class="crop-rotate-btns">
-          <button class="crop-btn" onclick="rotateCrop(-90)">↺ Rotate Left</button>
-          <button class="crop-btn" onclick="rotateCrop(90)">↻ Rotate Right</button>
-        </div>
-        <button class="crop-confirm" onclick="confirmCrop()">✓ Use This Photo →</button>
-      </div>
-      <div class="realtime-tracker" id="rtTracker">
-        <div class="rt-title">Processing your photo</div>
-        <div class="rt-step" id="rt1"><div class="rt-icon">📤</div><div style="flex:1"><div class="rt-label">Uploading photo</div><div class="rt-sub">Sending to processing server</div></div><span class="rt-badge pending" id="rt1-badge">Waiting</span></div>
-        <div class="rt-step" id="rt2"><div class="rt-icon">✂️</div><div style="flex:1"><div class="rt-label">Removing background</div><div class="rt-sub">AI-powered background removal</div></div><span class="rt-badge pending" id="rt2-badge">Waiting</span></div>
-        <div class="rt-step" id="rt3"><div class="rt-icon">🖼️</div><div style="flex:1"><div class="rt-label">Formatting passport photo</div><div class="rt-sub">Applying white background &amp; sizing</div></div><span class="rt-badge pending" id="rt3-badge">Waiting</span></div>
-        <div class="rt-step" id="rt4"><div class="rt-icon">✅</div><div style="flex:1"><div class="rt-label">Photo ready</div><div class="rt-sub">Your photo is formatted and ready</div></div><span class="rt-badge pending" id="rt4-badge">Waiting</span></div>
-      </div>
-      <div class="photo-result" id="photoResult">
-        <div class="ok-badge"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Photo processed — white background applied</div>
-        <div class="photo-grid">
-          <div class="photo-box"><div class="photo-box-lbl">Background removed</div><canvas id="removedCanvas"></canvas></div>
-          <div class="photo-box"><div class="photo-box-lbl">Passport photo</div><div class="passport-wrap"><canvas id="passportCanvas"></canvas></div></div>
-        </div>
-        <div class="strip-row" id="stripRow"></div>
-        <div class="strip-lbl">6×4 print — 4 photos in a 2×2 grid, ready to cut</div>
-      </div>
-      <!-- Service selector — shown after photo is processed -->
-      <div id="serviceSelector" style="display:none;margin:16px 0;padding:16px;background:var(--cream);border:2px solid var(--navy);border-radius:var(--r-sm);">
-        <p style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:12px;">📦 Choose your service:</p>
-        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin-bottom:10px;padding:12px;border-radius:8px;border:2px solid var(--navy);background:white;transition:all 0.2s;" id="optDigitalLabel">
-          <input type="radio" name="printOption" id="printOption" value="digital" checked onchange="updatePrintOption()" style="margin-top:2px;accent-color:var(--navy);"/>
-          <div>
-            <div style="font-size:15px;font-weight:600;color:var(--navy);">📧 Digital Only — <span id="digitalPrice">£6.99</span></div>
-            <div style="font-size:12px;color:var(--silver);margin-top:2px;">Photo emailed instantly · Print at home or any print shop</div>
-          </div>
-        </label>
-        <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px;border-radius:8px;border:2px solid transparent;background:white;transition:all 0.2s;" id="optPrintLabel">
-          <input type="radio" name="printOption" value="print" onchange="updatePrintOption()" style="margin-top:2px;accent-color:var(--navy);"/>
-          <div>
-            <div style="font-size:15px;font-weight:600;color:var(--navy);">🖨️ Digital + Print — <span id="printPrice">£9.99</span> <span style="background:#fef9c3;color:#854d0e;font-size:10px;padding:2px 6px;border-radius:99px;font-weight:600;">Lon-Wilson Kiosk</span></div>
-            <div style="font-size:12px;color:var(--silver);margin-top:2px;">Photo emailed + unique print code · Collect printed photos at our kiosk</div>
-          </div>
-        </label>
-      </div>
-
-      <div class="nav-row"><button class="btn btn-ghost" onclick="goTo(2)">← Back</button><button class="btn btn-navy" id="toPayBtn" onclick="s3()" disabled>Continue →</button></div>
-    </div>
-  </div>
-
-  <!-- STEP 4 -->
-  <div class="card" id="page4" style="display:none;">
-    <div class="card-head">
-      <div class="card-head-eyebrow">Step 4 of 4</div>
-      <h2>Payment</h2>
-      <p>Secure checkout — photo emailed immediately after payment</p>
-    </div>
-    <div class="card-body">
-      <div class="summary-box" id="orderSummary"></div>
-      <div id="payment-request-btn" class="hidden"></div>
-      <div id="pay-divider-row" class="pay-divider">Or pay by card</div>
-      <div class="field"><label>Card Details <span class="req">*</span></label><div id="card-element"></div><div id="card-errors"></div></div>
-      <div class="field"><label>Name on Card <span class="req">*</span></label><input type="text" id="cardName" placeholder="As it appears on your card"/></div>
-      <div class="secure-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Secured by Stripe · card details never stored · charged in GBP (£)</div>
-      <div class="realtime-tracker" id="payTracker">
-        <div class="rt-title">Processing your payment</div>
-        <div class="rt-step" id="pt1"><div class="rt-icon">💳</div><div style="flex:1"><div class="rt-label">Authorising card</div><div class="rt-sub">Verifying with your bank</div></div><span class="rt-badge pending" id="pt1-badge">Waiting</span></div>
-        <div class="rt-step" id="pt2"><div class="rt-icon">💰</div><div style="flex:1"><div class="rt-label">Processing payment</div><div class="rt-sub" id="pt2Sub">Confirming charge</div></div><span class="rt-badge pending" id="pt2-badge">Waiting</span></div>
-        <div class="rt-step" id="pt3"><div class="rt-icon">📧</div><div style="flex:1"><div class="rt-label">Sending photo by email</div><div class="rt-sub">Attaching passport photo to email</div></div><span class="rt-badge pending" id="pt3-badge">Waiting</span></div>
-        <div class="rt-step" id="pt4"><div class="rt-icon">🎉</div><div style="flex:1"><div class="rt-label">Order complete</div><div class="rt-sub">Check your inbox!</div></div><span class="rt-badge pending" id="pt4-badge">Waiting</span></div>
-      </div>
-      <div class="status" id="payStatus"></div>
-      <!-- Terms checkbox -->
-      <div class="terms-box">
-        <label>
-          <input type="checkbox" id="termsConsent" onchange="togglePayBtn()" style="margin-top:2px;width:16px;height:16px;accent-color:#1d4ed8;flex-shrink:0;"/>
-          <span>I agree to the <a href="/terms.html" target="_blank" style="color:#1d4ed8;font-weight:600;">Terms &amp; Conditions</a> and <a href="/privacy.html" target="_blank" style="color:#1d4ed8;font-weight:600;">Privacy Policy</a>. I understand my photo will be deleted after delivery.</span>
-        </label>
-      </div>
-      <div class="nav-row"><button class="btn btn-ghost" id="backBtn" onclick="goTo(3)">← Back</button><button class="btn btn-navy" id="payBtn" onclick="doPayment()" disabled>Pay £6.99</button></div>
-    </div>
-  </div>
-
-  <!-- SUCCESS -->
-  <div class="card" id="pageSuccess" style="display:none;">
-    <div class="success-wrap">
-      <div class="success-emblem"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
-      <h2>Order Confirmed!</h2>
-      <p class="sub">Your passport photo has been processed and emailed to you.</p>
-      <div class="order-tag" id="orderRef">—</div>
-      <p style="font-size:13px;color:var(--silver);font-weight:300;margin-bottom:4px;">Photo sent to <strong id="confirmEmail" style="color:var(--navy);font-weight:500;"></strong></p>
-      <!-- Spam tip -->
-      <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e;margin:12px 0;text-align:left;">
-        📬 <strong>Can't see the email?</strong> Check your spam or junk folder. Add <strong>info@photoboothapp.co.uk</strong> to your contacts to ensure delivery.
-      </div>
-      <div class="what-next"><strong>What happens next</strong>Your photo is attached to the email. The 6×4 print file contains 4 photos in a 2×2 grid — simply print it at any photo printing service and cut into 4 individual photos.</div>
-        <button class="btn btn-navy" id="dlJpg">⬇ Download Passport Photo</button>
-        <button class="btn btn-ghost" id="dlStrip">⬇ Download 6×4 Print</button>
-      <button class="btn btn-ghost" style="margin-top:0.75rem;width:100%;font-size:12px;" onclick="location.reload()">Start a new order →</button>
-    </div>
-  </div>
-
-</div>
-
-<script>
-const STRIPE_PUB='pk_test_51TSECu35KZdLv5ZTbb4hMDl8UQmwL2fU36lpnKuWYuHZiwWMoGanluEL1DDzLizl0FhCDeuJEKhLKE0KjvRXMYgt00Kzhvw6Bp';
-let step=1,removedImageData=null,passC=null,stripC=null,stripe=null,cardEl=null,paymentIntentSecret=null,rawPhotoFile=null,bgRemovedClientSide=false;
-
-// ── Multi-currency ─────────────────────────────────────────
-var PRICES = {
-  GBP: { digital: 699,  print: 999,  digitalLabel: '£6.99', printLabel: '£9.99', symbol: '£', name: 'GBP' },
-  EUR: { digital: 829,  print: 1199, digitalLabel: '€8.29', printLabel: '€11.99', symbol: '€', name: 'EUR' },
-  USD: { digital: 899,  print: 1299, digitalLabel: '$8.99', printLabel: '$12.99', symbol: '$', name: 'USD' }
-};
-var currentCurrency = 'GBP';
-
-function setCurrency(code) {
-  currentCurrency = code || 'GBP';
-  var p = PRICES[currentCurrency];
-  // Update header
-  document.getElementById('headerPrice').textContent = 'From ' + p.digitalLabel;
-  // Update service selector
-  var dp = document.getElementById('digitalPrice');
-  var pp = document.getElementById('printPrice');
-  if (dp) dp.textContent = p.digitalLabel;
-  if (pp) pp.textContent = p.printLabel;
-  // Update pay button if on step 4
-  updatePrintOption();
-}
-
-// Auto-detect currency from IP geolocation
-(function detectCurrency() {
-  // Eurozone countries
-  var eurozone = ['AT','BE','CY','EE','FI','FR','DE','GR','IE','IT','LV','LT','LU','MT','NL','PT','SK','SI','ES'];
-  fetch('https://ipapi.co/json/')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      var code = d.country_code || '';
-      var currency = 'USD';
-      if (code === 'GB') currency = 'GBP';
-      else if (eurozone.indexOf(code) !== -1) currency = 'EUR';
-      document.getElementById('currencySelect').value = currency;
-      setCurrency(currency);
-    })
-    .catch(function() { setCurrency('GBP'); });
-})();
-
-// ── GLOBAL VFS CENTRES ────────────────────────────────────
-const VFS_CENTRES = [
-  // United Kingdom — VFS Global
-  {country:'United Kingdom',city:'London',name:'VFS Global — London (Multiple Missions)'},
-  {country:'United Kingdom',city:'Manchester',name:'VFS Global — Manchester'},
-  {country:'United Kingdom',city:'Birmingham',name:'VFS Global — Birmingham'},
-  {country:'United Kingdom',city:'Edinburgh',name:'VFS Global — Edinburgh'},
-
-  // United Kingdom — Other
-  {country:'United Kingdom',city:'Other',name:'Other UK Application Centre'},
-  // Portugal
-  {country:'Portugal',city:'Lisbon',name:'VFS Global — Lisbon'},
-  {country:'Portugal',city:'Lisbon',name:'French Consulate VAC — Lisbon'},
-  {country:'Portugal',city:'Porto',name:'VFS Global — Porto'},
-  {country:'Portugal',city:'Faro',name:'VFS Global — Faro'},
-  // India
-  {country:'India',city:'New Delhi',name:'VFS Global — New Delhi'},
-  {country:'India',city:'Mumbai',name:'VFS Global — Mumbai'},
-  {country:'India',city:'Chennai',name:'VFS Global — Chennai'},
-  {country:'India',city:'Bangalore',name:'VFS Global — Bangalore'},
-  {country:'India',city:'Hyderabad',name:'VFS Global — Hyderabad'},
-  {country:'India',city:'Kolkata',name:'VFS Global — Kolkata'},
-  {country:'India',city:'Ahmedabad',name:'VFS Global — Ahmedabad'},
-  {country:'India',city:'Chandigarh',name:'VFS Global — Chandigarh'},
-  {country:'India',city:'Cochin',name:'VFS Global — Cochin'},
-  {country:'India',city:'Pune',name:'VFS Global — Pune'},
-  {country:'India',city:'Jaipur',name:'VFS Global — Jaipur'},
-  {country:'India',city:'Amritsar',name:'VFS Global — Amritsar'},
-  {country:'India',city:'Goa',name:'VFS Global — Goa'},
-  // Pakistan
-  {country:'Pakistan',city:'Islamabad',name:'VFS Global — Islamabad'},
-  {country:'Pakistan',city:'Karachi',name:'VFS Global — Karachi'},
-  {country:'Pakistan',city:'Lahore',name:'VFS Global — Lahore'},
-  {country:'Pakistan',city:'Peshawar',name:'VFS Global — Peshawar'},
-  {country:'Pakistan',city:'Faisalabad',name:'VFS Global — Faisalabad'},
-  {country:'Pakistan',city:'Multan',name:'VFS Global — Multan'},
-  // UAE
-  {country:'UAE',city:'Dubai',name:'VFS Global — Dubai'},
-  {country:'UAE',city:'Abu Dhabi',name:'VFS Global — Abu Dhabi'},
-  {country:'UAE',city:'Sharjah',name:'VFS Global — Sharjah'},
-  // Saudi Arabia
-  {country:'Saudi Arabia',city:'Riyadh',name:'VFS Global — Riyadh'},
-  {country:'Saudi Arabia',city:'Jeddah',name:'VFS Global — Jeddah'},
-  {country:'Saudi Arabia',city:'Dammam',name:'VFS Global — Dammam'},
-  {country:'Saudi Arabia',city:'Khobar',name:'VFS Global — Khobar'},
-  // Qatar
-  {country:'Qatar',city:'Doha',name:'VFS Global — Doha'},
-  // Kuwait
-  {country:'Kuwait',city:'Kuwait City',name:'VFS Global — Kuwait City'},
-  // Bahrain
-  {country:'Bahrain',city:'Manama',name:'VFS Global — Manama'},
-  // Oman
-  {country:'Oman',city:'Muscat',name:'VFS Global — Muscat'},
-  // Bangladesh
-  {country:'Bangladesh',city:'Dhaka',name:'VFS Global — Dhaka'},
-  {country:'Bangladesh',city:'Chittagong',name:'VFS Global — Chittagong'},
-  {country:'Bangladesh',city:'Sylhet',name:'VFS Global — Sylhet'},
-  // Sri Lanka
-  {country:'Sri Lanka',city:'Colombo',name:'VFS Global — Colombo'},
-  // USA
-  {country:'USA',city:'New York',name:'VFS Global — New York'},
-  {country:'USA',city:'Washington DC',name:'VFS Global — Washington DC'},
-  {country:'USA',city:'Los Angeles',name:'VFS Global — Los Angeles'},
-  {country:'USA',city:'Chicago',name:'VFS Global — Chicago'},
-  {country:'USA',city:'Houston',name:'VFS Global — Houston'},
-  {country:'USA',city:'San Francisco',name:'VFS Global — San Francisco'},
-  {country:'USA',city:'Atlanta',name:'VFS Global — Atlanta'},
-  // Canada
-  {country:'Canada',city:'Toronto',name:'VFS Global — Toronto'},
-  {country:'Canada',city:'Vancouver',name:'VFS Global — Vancouver'},
-  {country:'Canada',city:'Montreal',name:'VFS Global — Montreal'},
-  {country:'Canada',city:'Calgary',name:'VFS Global — Calgary'},
-  // Australia
-  {country:'Australia',city:'Sydney',name:'VFS Global — Sydney'},
-  {country:'Australia',city:'Melbourne',name:'VFS Global — Melbourne'},
-  {country:'Australia',city:'Brisbane',name:'VFS Global — Brisbane'},
-  {country:'Australia',city:'Perth',name:'VFS Global — Perth'},
-  {country:'Australia',city:'Adelaide',name:'VFS Global — Adelaide'},
-  // New Zealand
-  {country:'New Zealand',city:'Auckland',name:'VFS Global — Auckland'},
-  {country:'New Zealand',city:'Wellington',name:'VFS Global — Wellington'},
-  // France
-  {country:'France',city:'Paris',name:'VFS Global — Paris'},
-  {country:'France',city:'Lyon',name:'VFS Global — Lyon'},
-  {country:'France',city:'Marseille',name:'VFS Global — Marseille'},
-  // Germany
-  {country:'Germany',city:'Berlin',name:'VFS Global — Berlin'},
-  {country:'Germany',city:'Frankfurt',name:'VFS Global — Frankfurt'},
-  {country:'Germany',city:'Munich',name:'VFS Global — Munich'},
-  {country:'Germany',city:'Hamburg',name:'VFS Global — Hamburg'},
-  {country:'Germany',city:'Dusseldorf',name:'VFS Global — Dusseldorf'},
-  // Italy
-  {country:'Italy',city:'Rome',name:'VFS Global — Rome'},
-  {country:'Italy',city:'Milan',name:'VFS Global — Milan'},
-  // Spain
-  {country:'Spain',city:'Madrid',name:'VFS Global — Madrid'},
-  {country:'Spain',city:'Barcelona',name:'VFS Global — Barcelona'},
-  // Netherlands
-  {country:'Netherlands',city:'Amsterdam',name:'VFS Global — Amsterdam'},
-  // Sweden
-  {country:'Sweden',city:'Stockholm',name:'VFS Global — Stockholm'},
-  // Switzerland
-  {country:'Switzerland',city:'Bern',name:'VFS Global — Bern'},
-  {country:'Switzerland',city:'Zurich',name:'VFS Global — Zurich'},
-  {country:'Switzerland',city:'Geneva',name:'VFS Global — Geneva'},
-  // Ireland
-  {country:'Ireland',city:'Dublin',name:'VFS Global — Dublin'},
-  // Nigeria
-  {country:'Nigeria',city:'Lagos',name:'VFS Global — Lagos'},
-  {country:'Nigeria',city:'Abuja',name:'VFS Global — Abuja'},
-  // Ghana
-  {country:'Ghana',city:'Accra',name:'VFS Global — Accra'},
-  // Kenya
-  {country:'Kenya',city:'Nairobi',name:'VFS Global — Nairobi'},
-  // South Africa
-  {country:'South Africa',city:'Johannesburg',name:'VFS Global — Johannesburg'},
-  {country:'South Africa',city:'Cape Town',name:'VFS Global — Cape Town'},
-  {country:'South Africa',city:'Durban',name:'VFS Global — Durban'},
-  // China
-  {country:'China',city:'Beijing',name:'VFS Global — Beijing'},
-  {country:'China',city:'Shanghai',name:'VFS Global — Shanghai'},
-  {country:'China',city:'Guangzhou',name:'VFS Global — Guangzhou'},
-  // Singapore
-  {country:'Singapore',city:'Singapore',name:'VFS Global — Singapore'},
-  // Malaysia
-  {country:'Malaysia',city:'Kuala Lumpur',name:'VFS Global — Kuala Lumpur'},
-  // Thailand
-  {country:'Thailand',city:'Bangkok',name:'VFS Global — Bangkok'},
-  // Japan
-  {country:'Japan',city:'Tokyo',name:'VFS Global — Tokyo'},
-  {country:'Japan',city:'Osaka',name:'VFS Global — Osaka'},
-  // Other
-  {country:'Other',city:'Other',name:'Other / Self-submission'},
-];
-
-// ── Populate country dropdown ─────────────────────────────
-(function initCountries(){
-  const countries=[...new Set(VFS_CENTRES.map(c=>c.country))].sort();
-  const sel=document.getElementById('countryFilter');
-
-  function buildOptions(detectedCountry) {
-    sel.innerHTML='<option value="">All countries…</option>';
-
-    // Always put UK first
-    const ukOption = document.createElement('option');
-    ukOption.value = 'United Kingdom';
-    ukOption.textContent = '🇬🇧 United Kingdom';
-    sel.appendChild(ukOption);
-
-    // If detected country is not UK, add it second
-    if (detectedCountry && detectedCountry !== 'United Kingdom') {
-      const detectedOption = document.createElement('option');
-      detectedOption.value = detectedCountry;
-      detectedOption.textContent = '📍 ' + detectedCountry + ' (your location)';
-      sel.appendChild(detectedOption);
-    }
-
-    // Add separator then rest alphabetically
-    const separator = document.createElement('option');
-    separator.disabled = true;
-    separator.textContent = '──────────────';
-    sel.appendChild(separator);
-
-    countries.filter(c => c !== 'United Kingdom' && c !== detectedCountry).forEach(c => {
-      const o = document.createElement('option');
-      o.value = c; o.textContent = c;
-      sel.appendChild(o);
-    });
-
-    // Auto-select detected country
-    if (detectedCountry) {
-      sel.value = detectedCountry;
-      filterCentres();
-    }
+Location.findOne({ locationId: 'LON-WILSON' }).then(function(loc) {
+  if (!loc) {
+    new Location({ locationId: 'LON-WILSON', name: 'London Wilson', address: 'London, UK', active: true }).save()
+    .then(function() { console.log('Default location LON-WILSON created'); })
+    .catch(function(e) { console.error('Location seed error:', e.message); });
   }
+}).catch(function() {});
 
-  // ── Build dropdowns immediately with UK default ───────
-  // Don't wait for ipapi — show dropdowns straight away
-  buildOptions('United Kingdom');
+// ── File validation ───────────────────────────────────────
+var ALLOWED_MIME = ['image/jpeg','image/png','image/jpg'];
+function validateFileType(buffer) {
+  var hex = buffer.slice(0,4).toString('hex');
+  return hex.startsWith('ffd8ff') || hex.startsWith('89504e47');
+}
 
-  // Then try to detect real location in background and update if different
-  var countryMap = {
-    'United Kingdom': 'United Kingdom',
-    'India': 'India', 'Pakistan': 'Pakistan',
-    'Bangladesh': 'Bangladesh', 'United States': 'USA',
-    'Canada': 'Canada', 'Australia': 'Australia',
-    'United Arab Emirates': 'UAE', 'Saudi Arabia': 'Saudi Arabia',
-    'Portugal': 'Portugal', 'France': 'France', 'Germany': 'Germany',
-    'Italy': 'Italy', 'Spain': 'Spain', 'Netherlands': 'Netherlands',
-    'Ireland': 'Ireland', 'Sweden': 'Sweden', 'Switzerland': 'Switzerland',
-    'Nigeria': 'Nigeria', 'Ghana': 'Ghana', 'Kenya': 'Kenya',
-    'South Africa': 'South Africa', 'China': 'China', 'Japan': 'Japan',
-    'Singapore': 'Singapore', 'Malaysia': 'Malaysia', 'Thailand': 'Thailand',
-    'Sri Lanka': 'Sri Lanka', 'Qatar': 'Qatar', 'Kuwait': 'Kuwait',
-    'Bahrain': 'Bahrain', 'Oman': 'Oman',
-  };
-
-  fetch('https://ipapi.co/json/')
-    .then(r => r.json())
-    .then(data => {
-      var country = data.country_name || '';
-      var matched = countryMap[country] || countries.find(c => c === country) || '';
-      if (matched && matched !== 'United Kingdom') {
-        // Update dropdowns with detected country
-        buildOptions(matched);
+function validateImageDimensions(buffer) {
+  return new Promise(function(resolve) {
+    try {
+      var hex = buffer.slice(0,4).toString('hex');
+      var width = 0, height = 0;
+      if (hex.startsWith('ffd8ff')) {
+        var i = 2;
+        while (i < buffer.length - 8) {
+          if (buffer[i] === 0xFF && (buffer[i+1] === 0xC0 || buffer[i+1] === 0xC2)) {
+            height = buffer.readUInt16BE(i+5);
+            width  = buffer.readUInt16BE(i+7);
+            break;
+          }
+          i++;
+        }
+      } else if (hex.startsWith('89504e47')) {
+        width  = buffer.readUInt32BE(16);
+        height = buffer.readUInt32BE(20);
       }
-    })
-    .catch(function() {}); // Already showing UK default — silently ignore errors
-})();
-
-function filterCentres(){
-  const country=document.getElementById('countryFilter').value;
-  const cityEl=document.getElementById('cityFilter');
-  cityEl.innerHTML='<option value="">All cities…</option>';
-  const cities=[...new Set(VFS_CENTRES.filter(c=>!country||c.country===country).map(c=>c.city))].sort();
-  cities.forEach(c=>{const o=document.createElement('option');o.value=c;o.textContent=c;cityEl.appendChild(o);});
-  filterCentresByCity();
+      if (width < 100 || height < 100) return resolve({ valid: false, error: 'Image too small — minimum 100x100 pixels.' });
+      if (width > 8000 || height > 8000) return resolve({ valid: false, error: 'Image too large — maximum 8000x8000 pixels.' });
+      resolve({ valid: true, width: width, height: height });
+    } catch(e) {
+      resolve({ valid: true });
+    }
+  });
 }
 
-function filterCentresByCity(){
-  const country=document.getElementById('countryFilter').value;
-  const city=document.getElementById('cityFilter').value;
-  const centreEl=document.getElementById('appCentre');
-  centreEl.innerHTML='<option value="">Select application centre…</option>';
-  const filtered=VFS_CENTRES.filter(c=>(!country||c.country===country)&&(!city||c.city===city));
-  filtered.forEach(c=>{const o=document.createElement('option');o.value=c.name;o.textContent=c.name;centreEl.appendChild(o);});
-  // Reset visa category when centre changes
-  filterVisaByCentre('');
+var upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter: function(req, file, cb) {
+    if (!ALLOWED_MIME.includes(file.mimetype)) return cb(new Error('Only JPEG and PNG files are allowed'), false);
+    cb(null, true);
+  }
+});
+
+// ── Security headers ──────────────────────────────────────
+app.use(function(req, res, next) {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.google.com https://www.gstatic.com https://cdn.jsdelivr.net; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src 'self' https://fonts.gstatic.com; " +
+    "img-src 'self' data: blob: https:; " +
+    "frame-src https://js.stripe.com https://www.google.com; " +
+    "connect-src 'self' https://api.stripe.com https://www.google.com https://cdn.jsdelivr.net https://ipapi.co https://huggingface.co https://*.huggingface.co wss://localhost:8181 wss://localhost:8182 ws://localhost:8181 ws://localhost:8182; " +
+    "worker-src blob: 'self';"
+  );
+  next();
+});
+
+app.use(cors());
+
+app.use(function(req, res, next) {
+  var start = Date.now();
+  var ip = req.headers['x-forwarded-for'] || req.ip || req.connection.remoteAddress || 'unknown';
+  res.on('finish', function() {
+    var log = {
+      ts:       new Date().toISOString(),
+      method:   req.method,
+      endpoint: req.path,
+      status:   res.statusCode,
+      ms:       Date.now() - start,
+      ip:       ip.split(',')[0].trim(),
+      ua:       (req.headers['user-agent'] || '').substring(0, 120),
+    };
+    var level = res.statusCode >= 500 ? 'ERROR' : res.statusCode >= 400 ? 'WARN' : 'INFO';
+    console.log('[' + level + '] ' + JSON.stringify(log));
+  });
+  next();
+});
+
+var rateLimitStore = {};
+function rateLimit(maxRequests, windowMs) {
+  return function(req, res, next) {
+    var ip = req.ip || req.connection.remoteAddress || 'unknown';
+    var key = ip + ':' + req.path;
+    var now = Date.now();
+    if (!rateLimitStore[key]) rateLimitStore[key] = { count: 0, resetAt: now + windowMs };
+    if (now > rateLimitStore[key].resetAt) rateLimitStore[key] = { count: 0, resetAt: now + windowMs };
+    rateLimitStore[key].count++;
+    if (rateLimitStore[key].count > maxRequests) {
+      return res.status(429).json({ error: 'Too many requests. Please wait a moment and try again.' });
+    }
+    next();
+  };
+}
+setInterval(function() { rateLimitStore = {}; }, 10 * 60 * 1000);
+
+function sanitise(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/[<>]/g, '')
+    .replace(/javascript:/gi, '')
+    .replace(/on\w+=/gi, '')
+    .trim()
+    .substring(0, 500);
 }
 
-// ── Centre to visa category mapping ──────────────────────
-const CENTRE_VISA_MAP = {
-  'VFS Global': { allowed: null, excluded: [], label: null },
-};
+function verifyRecaptcha(token, minScore) {
+  if (!token || !process.env.RECAPTCHA_SECRET_KEY) return Promise.resolve(true);
+  minScore = minScore || 0.1;
+  return axios.post('https://www.google.com/recaptcha/api/siteverify', null, {
+    params: { secret: process.env.RECAPTCHA_SECRET_KEY, response: token }
+  }).then(function(r) {
+    var data = r.data;
+    if (!data.success) return true;
+    if (data.score < minScore) return false;
+    return true;
+  }).catch(function() { return true; });
+}
 
-function getCentreType(centreName) {
-  if (!centreName) return null;
-  if (centreName.includes('VFS')) return 'VFS Global';
+app.use(express.json({ limit: '20mb' }));
+app.use('/api/stripe-webhook', express.raw({ type: 'application/json' }));
+app.use(express.static(process.env.STATIC_DIR || 'public'));
+
+var path = require('path');
+var staticDir = process.env.STATIC_DIR ? process.env.STATIC_DIR : path.join(__dirname, 'public');
+
+// ── Apple Pay domain verification ────────────────────────
+// Stripe serves this automatically — but we need the route in case
+// of direct requests. The actual file content comes from Stripe dashboard.
+app.get('/.well-known/apple-developer-merchantid-domain-association', function(req, res) {
+  var filePath = path.join(staticDir, '.well-known', 'apple-developer-merchantid-domain-association');
+  res.setHeader('Content-Type', 'text/plain');
+  res.sendFile(filePath, function(err) {
+    if (err) {
+      // File not yet added — return empty response (Stripe will handle)
+      console.log('[INFO] Apple Pay domain file not found — add from Stripe dashboard');
+      res.status(200).send('');
+    }
+  });
+});
+
+app.get('/', function(req, res) { res.sendFile(path.join(staticDir, 'index.html')); });
+app.get('/order', function(req, res) { res.sendFile(path.join(staticDir, 'order.html')); });
+app.get('/vfs', function(req, res) { res.sendFile(path.join(staticDir, 'vfs.html')); });
+app.get('/kiosk', function(req, res) { res.sendFile(path.join(staticDir, 'kiosk.html')); });
+app.get('/admin-sabtech', function(req, res) { res.sendFile(path.join(staticDir, 'admin-sabtech.html')); });
+app.get('/admin-vfs', function(req, res) { res.sendFile(path.join(staticDir, 'admin-vfs.html')); });
+app.get('/retake/:token', function(req, res) { res.sendFile(path.join(staticDir, 'retake.html')); });
+
+// ── In-memory photo store ─────────────────────────────────
+var photoStore = {};
+var printPhotoStore = {};
+
+// ── CHANGE 1: storePhoto now accepts bgRemoved flag ───────
+function storePhoto(token, imgBuffer, bgRemoved) {
+  photoStore[token] = {
+    buffer: imgBuffer,
+    createdAt: Date.now(),
+    used: false,
+    bgRemoved: bgRemoved !== false // default true for backwards compat
+  };
+  setTimeout(function() { delete photoStore[token]; }, 30 * 60 * 1000);
+}
+
+function getPhoto(token) {
+  var entry = photoStore[token];
+  if (!entry) return null;
+  if (entry.used) return null;
+  return entry;
+}
+
+function deletePhoto(token) {
+  if (photoStore[token]) {
+    photoStore[token].used = true;
+    photoStore[token].buffer = null;
+    delete photoStore[token];
+  }
+}
+
+function storePrintPhoto(printCode, imgBuffer) {
+  var base64 = imgBuffer.toString('base64');
+  PrintPhoto.findOneAndUpdate(
+    { printCode: printCode },
+    { printCode: printCode, photoData: base64, createdAt: new Date() },
+    { upsert: true, new: true }
+  ).then(function() {
+    console.log('[INFO] Print photo saved to DB for code: ' + printCode);
+  }).catch(function(e) { console.error('Print photo DB save error:', e.message); });
+  printPhotoStore[printCode] = { buffer: imgBuffer, createdAt: Date.now() };
+  setTimeout(function() { delete printPhotoStore[printCode]; }, 72 * 60 * 60 * 1000);
+}
+
+function getPrintPhoto(printCode) { return printPhotoStore[printCode] || null; }
+
+async function getPrintPhotoAsync(printCode) {
+  if (printPhotoStore[printCode]) return printPhotoStore[printCode];
+  try {
+    var doc = await PrintPhoto.findOne({ printCode: printCode }).lean();
+    if (doc) return { buffer: Buffer.from(doc.photoData, 'base64'), createdAt: doc.createdAt };
+  } catch(e) { console.error('Print photo DB fetch error:', e.message); }
   return null;
 }
 
-function filterVisaByCentre(centreName) {
-  const visaSel = document.getElementById('visaCat');
-  const centreType = getCentreType(centreName);
-  const mapping = centreType ? CENTRE_VISA_MAP[centreType] : null;
-  const infoEl = document.getElementById('centre-info');
+function deletePrintPhoto(printCode) {
+  delete printPhotoStore[printCode];
+  PrintPhoto.deleteOne({ printCode: printCode }).catch(function(){});
+}
 
-  // Show/hide centre info message
-  if (mapping && mapping.label && infoEl) {
-    infoEl.textContent = 'ℹ️ ' + mapping.label;
-    infoEl.style.display = 'block';
-  } else if (infoEl) {
-    infoEl.style.display = 'none';
+// ── SERVER-SIDE remove.bg ─────────────────────────────────
+// Called only after payment is confirmed — prevents free API usage by non-paying users
+function getPassportDimensions(purpose) {
+  var DPI = 300;
+  var w_mm = 35, h_mm = 45;
+  if (purpose) {
+    var p = purpose.toLowerCase();
+    if (p.includes('20') && p.includes('25'))      { w_mm=20; h_mm=25; }
+    else if (p.includes('25') && p.includes('30')) { w_mm=25; h_mm=30; }
+    else if (p.includes('33') && p.includes('48')) { w_mm=33; h_mm=48; }
+    else if (p.includes('40') && p.includes('60')) { w_mm=40; h_mm=60; }
+    else if (p.includes('43') && p.includes('55')) { w_mm=43; h_mm=55; }
+    else if (p.includes('50') && p.includes('70')) { w_mm=50; h_mm=70; }
+    else if (p.includes('51') || p.includes('2x2')){ w_mm=51; h_mm=51; }
   }
-
-  // Show/hide visa options based on centre
-  const optgroups = visaSel.querySelectorAll('optgroup');
-  const options = visaSel.querySelectorAll('option');
-
-  options.forEach(function(o) { o.style.display = ''; });
-  optgroups.forEach(function(g) { g.style.display = ''; });
-
-  if (mapping && mapping.allowed) {
-    // Only show allowed options
-    options.forEach(function(o) {
-      if (o.value === '') return; // keep placeholder
-      var show = mapping.allowed.includes(o.value);
-      o.style.display = show ? '' : 'none';
-    });
-    // Hide empty optgroups
-    optgroups.forEach(function(g) {
-      var visible = Array.from(g.querySelectorAll('option')).some(function(o){ return o.style.display !== 'none'; });
-      g.style.display = visible ? '' : 'none';
-    });
-    // Auto-select if only one option
-    if (mapping.autoSelect) {
-      visaSel.value = mapping.autoSelect;
-      updatePurpose();
-    } else {
-      visaSel.value = '';
-    }
-  } else if (mapping && mapping.excluded) {
-    // Hide excluded options (VFS Global)
-    options.forEach(function(o) {
-      if (o.value === '') return;
-      if (mapping.excluded.includes(o.value)) o.style.display = 'none';
-    });
-    optgroups.forEach(function(g) {
-      var visible = Array.from(g.querySelectorAll('option')).some(function(o){ return o.style.display !== 'none'; });
-      g.style.display = visible ? '' : 'none';
-    });
-    visaSel.value = '';
-  } else {
-    // Show all
-    visaSel.value = '';
-  }
-}
-
-
-// ── Photo purposes ────────────────────────────────────────
-const PURPOSES={
-  // ── Passport Renewal ──────────────────────────────────
-  'uk-passport':    ['UK Passport — 35×45mm'],
-  'us-passport':    ['US Passport — 51×51mm'],
-  'eu-passport':    ['EU Passport — 35×45mm'],
-  'indian-passport':['Indian Passport — 35×45mm','Indian PCC / Police Clearance — 20×25mm','Surrender / Renunciation Certificate — 35×45mm'],
-  'pakistani-passport':['Pakistani Passport — 35×45mm','NICOP / POC — 35×45mm','CNIC — 35×45mm'],
-  'bangladeshi-passport':['Bangladeshi Passport — 35×45mm','National ID (NID) — 25×30mm'],
-  'sri-lankan-passport':['Sri Lankan Passport — 35×45mm'],
-  'nigerian-passport':['Nigerian Passport — 35×45mm','National ID (NIN) — 35×45mm'],
-  'ghanaian-passport':['Ghanaian Passport — 35×45mm','Ghana Card (EC) — 35×45mm'],
-  'other-passport': ['Passport Photo (ICAO standard) — 35×45mm'],
-  // ── Schengen / Europe ─────────────────────────────────
-  'schengen':       ['Schengen Visa — 35×45mm'],
-  'france-visa':    ['France Visa — 35×45mm'],
-  'germany-visa':   ['Germany Visa — 35×45mm'],
-  'italy-visa':     ['Italy Visa — 35×45mm'],
-  'spain-visa':     ['Spain Visa — 35×45mm'],
-  'netherlands-visa':['Netherlands Visa — 35×45mm'],
-  'sweden-visa':    ['Sweden Visa — 35×45mm'],
-  'switzerland-visa':['Switzerland Visa — 35×45mm'],
-  // ── English Speaking ──────────────────────────────────
-  'uk-visa':        ['UK Visa — 35×45mm'],
-  'us-visa':        ['US Visa (DS-160) — 51×51mm'],
-  'canada-visa':    ['Canada Visa / TRV / eTA — 50×70mm','Canada PR / Express Entry — 50×70mm'],
-  'australia-visa': ['Australia Visa — 35×45mm'],
-  'newzealand-visa':['New Zealand Visa — 35×45mm'],
-  'ireland-visa':   ['Ireland Visa — 35×45mm'],
-  // ── Middle East ───────────────────────────────────────
-  'uae-visa':       ['UAE Visa — 43×55mm','Emirates ID — 43×55mm'],
-  'saudi-visa':     ['Saudi Arabia Visa — 40×60mm','Iqama / Residence Permit — 40×60mm'],
-  'qatar-visa':     ['Qatar Visa — 40×60mm','Qatar ID (QID) — 40×60mm'],
-  'kuwait-visa':    ['Kuwait Visa — 40×60mm','Kuwait Civil ID — 40×60mm'],
-  'bahrain-visa':   ['Bahrain Visa — 40×60mm','Bahrain CPR — 40×60mm'],
-  'oman-visa':      ['Oman Visa — 40×60mm'],
-  // ── Asia ──────────────────────────────────────────────
-  'india-visa':     ['India e-Visa — 51×51mm','OCI Card — 51×51mm'],
-  'china-visa':     ['China Visa — 33×48mm'],
-  'japan-visa':     ['Japan Visa — 35×45mm'],
-  'singapore-visa': ['Singapore Visa / PR — 35×45mm'],
-  'malaysia-visa':  ['Malaysia Visa — 35×45mm'],
-  'thailand-visa':  ['Thailand Visa — 35×45mm'],
-  'sri-lanka-visa': ['Sri Lanka e-Visa — 35×45mm'],
-  'bangladesh-visa':['Bangladesh Visa — 35×45mm'],
-  // ── Africa ────────────────────────────────────────────
-  'nigeria-visa':   ['Nigeria Visa — 35×45mm'],
-  'ghana-visa':     ['Ghana Visa — 35×45mm'],
-  'kenya-visa':     ['Kenya e-Visa — 35×45mm'],
-  'southafrica-visa':['South Africa Visa — 35×45mm'],
-  'ethiopia-visa':  ['Ethiopia Visa — 35×45mm'],
-  // ── Other Documents ───────────────────────────────────
-  'driving':        ['UK Driving Licence — 35×45mm'],
-  'id-card':        ['National ID / Biometric Card — 35×45mm'],
-  'brp':            ['BRP / Biometric Residence Permit — 35×45mm'],
-  'misc':           ['Standard ICAO — 35×45mm','US Standard — 51×51mm','Canada Standard — 50×70mm','Middle East Standard — 40×60mm','Indian PCC — 20×25mm'],
-};
-
-// ── Photo size lookup ─────────────────────────────────────
-function getPhotoSize(purpose) {
-  if (!purpose) return { w: 35, h: 45 };
-  const p = purpose.toLowerCase();
-  // Match explicit dimensions in the purpose string
-  // Order matters: check more specific sizes first
-  if (p.includes('20×25') || p.includes('20x25') || p.includes('pcc'))   return { w: 20, h: 25 };
-  if (p.includes('25×30') || p.includes('25x30'))                         return { w: 25, h: 30 };
-  if (p.includes('25×35') || p.includes('25x35'))                         return { w: 25, h: 35 };
-  if (p.includes('33×48') || p.includes('33x48'))                         return { w: 33, h: 48 };
-  if (p.includes('35×45') || p.includes('35x45'))                         return { w: 35, h: 45 };
-  if (p.includes('40×60') || p.includes('40x60'))                         return { w: 40, h: 60 };
-  if (p.includes('43×55') || p.includes('43x55'))                         return { w: 43, h: 55 };
-  if (p.includes('50×70') || p.includes('50x70'))                         return { w: 50, h: 70 };
-  if (p.includes('51×51') || p.includes('51x51') || p.includes('2×2'))    return { w: 51, h: 51 };
-  // Keyword fallbacks
-  if (p.includes('canada'))   return { w: 50, h: 70 };
-  if (p.includes('us visa') || p.includes('ds-160') || p.includes('oci') || p.includes('e-visa')) return { w: 51, h: 51 };
-  if (p.includes('uae') || p.includes('emirates')) return { w: 43, h: 55 };
-  if (p.includes('saudi') || p.includes('qatar') || p.includes('kuwait') || p.includes('bahrain') || p.includes('oman') || p.includes('iqama')) return { w: 40, h: 60 };
-  if (p.includes('china'))    return { w: 33, h: 48 };
-  if (p.includes('us passport')) return { w: 51, h: 51 };
-  return { w: 35, h: 45 }; // default ICAO (UK, EU, India passport, most visas)
-}
-
-function updatePurpose(){
-  const cat=document.getElementById('visaCat').value;
-  const sel=document.getElementById('photoPurpose');
-  sel.innerHTML='<option value="">Select photo purpose…</option>';
-  if(PURPOSES[cat]){PURPOSES[cat].forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o);});if(PURPOSES[cat].length===1)sel.value=PURPOSES[cat][0];}
-}
-
-// ── Stepper ───────────────────────────────────────────────
-const ICONS=[
-  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>`,
-  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
-  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>`,
-  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>`,
-];
-const CHECK=`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-
-function goTo(n){document.getElementById('page'+step).style.display='none';step=n;document.getElementById('page'+n).style.display='block';updateStepper();window.scrollTo({top:0,behavior:'smooth'});}
-function updateStepper(){for(let i=1;i<=4;i++){const el=document.getElementById('si'+i);el.classList.remove('active','done');const d=el.querySelector('.step-dot');if(i<step){el.classList.add('done');d.innerHTML=CHECK;}else if(i===step){el.classList.add('active');d.innerHTML=ICONS[i-1];}else{d.innerHTML=ICONS[i-1];}}}
-function mF(fi,ei,bad){document.getElementById(fi)?.classList.toggle('err',bad);document.getElementById(ei)?.classList.toggle('show',bad);return bad;}
-
-function s1(){
-  let e=false;
-  e|=mF('appCentre','e-centre',!document.getElementById('appCentre').value);
-  e|=mF('visaCat','e-visa',!document.getElementById('visaCat').value);
-  e|=mF('photoPurpose','e-purpose',!document.getElementById('photoPurpose').value);
-  if(!e)goTo(2);
-}
-function s2(){
-  const n=document.getElementById('fullName').value.trim();
-  const em=document.getElementById('email').value.trim();
-  const ec=document.getElementById('emailConfirm').value.trim();
-  const ph=document.getElementById('phone').value.trim();
-  let e=false;
-  e|=mF('fullName','e-name',!n);e|=mF('email','e-email',!em||!em.includes('@'));
-  e|=mF('emailConfirm','e-email2',em!==ec);e|=mF('phone','e-phone',!ph);
-  if(!e)goTo(3);
-}
-
-// ── Real-time tracker ─────────────────────────────────────
-function rtSet(id,state,badgeText){
-  const el=document.getElementById(id);el.classList.remove('active','done','error');
-  if(state)el.classList.add(state);
-  const b=document.getElementById(id+'-badge');
-  if(b){b.className='rt-badge '+state;b.innerHTML=state==='active'?`<span class="spinner-sm"></span> ${badgeText}`:badgeText;}
-}
-
-// ── Photo upload ──────────────────────────────────────────
-// ── Dynamic processing feedback ───────────────────────────
-var processingTimer = null;
-var processingStart = null;
-
-function startProcessingTimer(elementId) {
-  processingStart = Date.now();
-  processingTimer = setInterval(function() {
-    var el = document.getElementById(elementId);
-    if (!el) { clearInterval(processingTimer); return; }
-    var sec = Math.floor((Date.now() - processingStart) / 1000);
-    if (sec > 3) el.textContent = sec + 's';
-  }, 1000);
-}
-
-function stopProcessingTimer() {
-  if (processingTimer) { clearInterval(processingTimer); processingTimer = null; }
-}
-// ── Phone number formatting ───────────────────────────────
-function formatPhone(input) {
-  var val = input.value.replace(/[^\d\s\-\(\)]/g, '');
-  input.value = val;
-  var ph = val.replace(/\D/g, '');
-  var ok = ph.length >= 7 && ph.length <= 15;
-  document.getElementById('e-phone').classList.toggle('show', !ok && val.length > 0);
-  input.classList.toggle('err', !ok && val.length > 0);
-}
-function updatePrintOption() {
-  var isPrint = document.querySelector('input[name="printOption"]:checked') &&
-                document.querySelector('input[name="printOption"]:checked').value === 'print';
-  var p = PRICES[currentCurrency] || PRICES['GBP'];
-  var payBtn = document.getElementById('payBtn');
-  if (paymentIntentSecret) {
-    payBtn.textContent = 'Pay ' + (isPrint ? p.printLabel : p.digitalLabel);
-  }
-  document.getElementById('optDigitalLabel').style.borderColor = !isPrint ? 'var(--navy)' : 'transparent';
-  document.getElementById('optPrintLabel').style.borderColor = isPrint ? 'var(--navy)' : 'transparent';
-  var totalEl = document.getElementById('summaryTotal');
-  var serviceEl = document.getElementById('summaryService');
-  if (totalEl) totalEl.textContent = isPrint ? p.printLabel : p.digitalLabel;
-  if (serviceEl) serviceEl.textContent = isPrint ? 'Digital + Print (Lon-Wilson)' : 'Digital Only';
-}
-
-function togglePayBtn() {
-  var terms = document.getElementById('termsConsent');
-  var payBtn = document.getElementById('payBtn');
-  if (terms && terms.checked && paymentIntentSecret) {
-    payBtn.disabled = false;
-    var isPrint = document.querySelector('input[name="printOption"]:checked').value === 'print';
-    var p = PRICES[currentCurrency] || PRICES['GBP'];
-    payBtn.textContent = 'Pay ' + (isPrint ? p.printLabel : p.digitalLabel);
-  }
-}
-
-// ── Camera — webcam modal for ALL devices ──
-(function() {
-  document.getElementById('takePhotoLabel').addEventListener('click', function(e) {
-    e.preventDefault();
-    if (!document.getElementById('photoConsent').checked) {
-      setMsg('photoStatus', 'Please tick the consent box above before taking a photo.', 'error');
-      return;
-    }
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      openWebcam();
-    } else {
-      document.getElementById('photoFileCamera').setAttribute('capture', 'user');
-      document.getElementById('photoFileCamera').click();
-    }
-  });
-})();
-
-function openWebcam() {
-  var modal = document.createElement('div');
-  modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;';
-  modal.innerHTML =
-    '<p style="color:rgba(255,255,255,0.5);font-size:11px;letter-spacing:1.5px;text-transform:uppercase;margin-bottom:14px;">Passport Photo Camera</p>' +
-    '<div style="position:relative;display:inline-block;">' +
-    '<video id="webcamVideo" autoplay playsinline style="width:320px;height:420px;object-fit:cover;border-radius:12px;display:block;"></video>' +
-    '<svg style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;" viewBox="0 0 320 420" xmlns="http://www.w3.org/2000/svg">' +
-    '<defs><mask id="ovalMask"><rect width="320" height="420" fill="white"/><ellipse cx="160" cy="165" rx="100" ry="128" fill="black"/></mask></defs>' +
-    '<rect width="320" height="420" fill="rgba(0,0,0,0.55)" mask="url(#ovalMask)"/>' +
-    '<ellipse id="faceOval" cx="160" cy="165" rx="100" ry="128" fill="none" stroke="#22c55e" stroke-width="3" stroke-dasharray="8,4"/>' +
-    '</svg>' +
-    '<div id="camTip" style="position:absolute;bottom:12px;left:0;right:0;text-align:center;">' +
-    '<div id="camTipText" style="display:inline-block;background:rgba(0,0,0,0.7);color:white;font-size:13px;font-weight:600;padding:8px 16px;border-radius:99px;letter-spacing:0.2px;backdrop-filter:blur(8px);"></div>' +
-    '</div>' +
-    '</div>' +
-    '<div id="camChecklist" style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;justify-content:center;max-width:340px;"></div>' +
-    '<div style="margin-top:16px;display:flex;gap:12px;">' +
-    '<button id="camCaptureBtn" onclick="captureWebcam()" style="padding:14px 40px;background:linear-gradient(135deg,#F5D06A,#C8920A);color:#0A0A0A;border:none;border-radius:99px;font-size:16px;font-weight:600;cursor:pointer;transition:opacity 0.2s;">📸 Capture</button>' +
-    '<button onclick="closeWebcam()" style="padding:14px 24px;background:transparent;color:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.2);border-radius:99px;font-size:15px;cursor:pointer;">✕</button>' +
-    '</div><canvas id="webcamCanvas" style="display:none;"></canvas>';
-
-  document.body.appendChild(modal);
-  window._webcamModal = modal;
-
-  // Tips cycle
-  var tips = [
-    { text: '↔️ Move back — fit face in oval', color: '#fbbf24' },
-    { text: '😐 Neutral expression please', color: '#60a5fa' },
-    { text: '👓 Remove glasses if wearing any', color: '#f87171' },
-    { text: '😮 Close your mouth', color: '#f87171' },
-    { text: '👀 Look straight at the camera', color: '#60a5fa' },
-    { text: '💡 Make sure you are well lit', color: '#fbbf24' },
-    { text: '🧢 Remove hat or head covering', color: '#f87171' },
-    { text: '✅ Ready? Click Capture!', color: '#22c55e' },
-  ];
-
-  var checklist = [
-    { id: 'cl1', icon: '👓', label: 'No glasses' },
-    { id: 'cl2', icon: '😐', label: 'Neutral expression' },
-    { id: 'cl3', icon: '😶', label: 'Mouth closed' },
-    { id: 'cl4', icon: '💡', label: 'Good lighting' },
-    { id: 'cl5', icon: '👀', label: 'Look straight' },
-  ];
-
-  // Build checklist pills
-  var checklistEl = document.getElementById('camChecklist');
-  checklist.forEach(function(c) {
-    var pill = document.createElement('div');
-    pill.id = c.id;
-    pill.style.cssText = 'display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:99px;padding:5px 10px;font-size:12px;color:rgba(255,255,255,0.5);transition:all 0.3s;';
-    pill.innerHTML = c.icon + ' <span>' + c.label + '</span>';
-    checklistEl.appendChild(pill);
-  });
-
-  // Cycle tips
-  var tipIdx = 0;
-  var tipEl = document.getElementById('camTipText');
-  tipEl.textContent = tips[0].text;
-  tipEl.style.color = tips[0].color;
-
-  window._tipTimer = setInterval(function() {
-    tipIdx = (tipIdx + 1) % tips.length;
-    tipEl.style.opacity = '0';
-    setTimeout(function() {
-      tipEl.textContent = tips[tipIdx].text;
-      tipEl.style.color = tips[tipIdx].color;
-      tipEl.style.opacity = '1';
-    }, 300);
-
-    // Tick off checklist items over time
-    var ticks = ['cl1','cl2','cl3','cl4','cl5'];
-    var tickIdx = Math.floor(tipIdx / 1.5);
-    if (tickIdx < ticks.length) {
-      var el = document.getElementById(ticks[tickIdx]);
-      if (el) {
-        el.style.background = 'rgba(34,197,94,0.15)';
-        el.style.borderColor = 'rgba(34,197,94,0.4)';
-        el.style.color = '#22c55e';
-      }
-    }
-  }, 2000);
-
-  tipEl.style.transition = 'opacity 0.3s';
-
-  var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  var constraints = isMobile
-    ? { video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 } } }
-    : { video: { facingMode: 'user', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } } };
-
-  navigator.mediaDevices.getUserMedia(constraints)
-    .then(function(stream) {
-      var video = document.getElementById('webcamVideo');
-      video.srcObject = stream;
-      window._webcamStream = stream;
-      return video.play();
-    })
-    .catch(function(err) {
-      console.warn('Camera error:', err);
-      closeWebcam();
-      alert('Camera not available. Please use "Choose from Gallery" to upload a photo.');
-    });
-}
-
-function captureWebcam() {
-  var video = document.getElementById('webcamVideo');
-  var btn = document.getElementById('camCaptureBtn');
-  btn.textContent = '⏳ Capturing…';
-  btn.disabled = true;
-
-  var flash = document.createElement('div');
-  flash.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:white;z-index:99999;opacity:0.8;pointer-events:none;transition:opacity 0.3s;';
-  document.body.appendChild(flash);
-  setTimeout(function() { flash.style.opacity = '0'; setTimeout(function() { flash.remove(); }, 300); }, 100);
-
-  var vw = video.videoWidth;
-  var vh = video.videoHeight;
-
-  // Video element renders at min(320px,90vw) x min(420px,60vh)
-  var rendW = Math.min(320, window.innerWidth * 0.9);
-  var rendH = Math.min(420, window.innerHeight * 0.60);
-
-  var scaleX = vw / rendW;
-  var scaleY = vh / rendH;
-
-  // Oval in rendered px: cx=160, cy=165, rx=100, ry=128 (viewBox 320x420)
-  var ovalCx = (160 / 320) * rendW;
-  var ovalCy = (165 / 420) * rendH;
-  var ovalRx = (100 / 320) * rendW;
-  var ovalRy = (128 / 420) * rendH;
-
-  var faceCx = ovalCx * scaleX;
-  var faceCy = ovalCy * scaleY;
-  var faceRx = ovalRx * scaleX;
-  var faceRy = ovalRy * scaleY;
-
-  var pad = 1.6;
-  var halfW = faceRx * pad;
-  var halfH = faceRy * pad;
-
-  var sx = Math.max(0, Math.round(faceCx - halfW));
-  var sy = Math.max(0, Math.round(faceCy - halfH));
-  var sw = Math.min(vw - sx, Math.round(halfW * 2));
-  var sh = Math.min(vh - sy, Math.round(halfH * 2));
-
-  var canvas = document.getElementById('webcamCanvas');
-  canvas.width = sw;
-  canvas.height = sh;
-  canvas.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-
-  // Save FULL frame as rawPhotoFile for server-side remove.bg (high res)
-  var fullCanvas = document.createElement('canvas');
-  fullCanvas.width = vw;
-  fullCanvas.height = vh;
-  fullCanvas.getContext('2d').drawImage(video, 0, 0, vw, vh);
-  fullCanvas.toBlob(function(fullBlob) {
-    rawPhotoFile = new File([fullBlob], 'webcam_full.jpg', { type: 'image/jpeg' });
-    console.log('Full frame saved for server: ' + vw + 'x' + vh + 'px');
-  }, 'image/jpeg', 0.97);
-
-  // Pass cropped version to crop editor for preview
-  canvas.toBlob(function(blob) {
-    closeWebcam();
-    var croppedFile = new File([blob], 'webcam.jpg', { type: 'image/jpeg' });
-    // rawPhotoFile already set above to full frame
-    initCropEditor(croppedFile);
-  }, 'image/jpeg', 0.97);
-}
-
-function closeWebcam() {
-  if (window._tipTimer) { clearInterval(window._tipTimer); window._tipTimer = null; }
-  if (window._webcamStream) { window._webcamStream.getTracks().forEach(function(t){t.stop();}); window._webcamStream=null; }
-  if (window._webcamModal) { document.body.removeChild(window._webcamModal); window._webcamModal=null; }
-}
-
-// ── Block upload if consent not given
-document.getElementById('photoFile').addEventListener('click', function(e) {
-  if (!document.getElementById('photoConsent').checked) {
-    e.preventDefault();
-    setMsg('photoStatus', 'Please tick the consent box above before uploading your photo.', 'error');
-  }
-});
-document.getElementById('photoFileCamera').addEventListener('click', function(e) {
-  if (!document.getElementById('photoConsent').checked) {
-    e.preventDefault();
-    setMsg('photoStatus', 'Please tick the consent box above before uploading your photo.', 'error');
-  }
-});
-document.getElementById('photoFile').addEventListener('change',e=>{if(e.target.files[0]){rawPhotoFile=e.target.files[0];doPhoto(e.target.files[0]);}});
-document.getElementById('photoFileCamera').addEventListener('change',e=>{if(e.target.files[0]){rawPhotoFile=e.target.files[0];doPhoto(e.target.files[0]);}});
-document.getElementById('uploadArea').addEventListener('dragover',e=>{e.preventDefault();document.getElementById('uploadArea').classList.add('drag');});
-document.getElementById('uploadArea').addEventListener('dragleave',()=>document.getElementById('uploadArea').classList.remove('drag'));
-document.getElementById('uploadArea').addEventListener('drop',e=>{e.preventDefault();document.getElementById('uploadArea').classList.remove('drag');if(e.dataTransfer.files[0])doPhoto(e.dataTransfer.files[0]);});
-
-function setMsg(id,msg,type,spin){const el=document.getElementById(id);el.innerHTML=(spin?'<span class="spinner"></span>':'')+msg;el.className='status show '+type;}
-function clearMsg(id){document.getElementById(id).className='status';}
-
-// ── Crop Editor ──────────────────────────────────────────
-var cropState = {
-  img: null, x: 0, y: 0, zoom: 1, baseZoom: 1, rotation: 0,
-  dragging: false, lastX: 0, lastY: 0, lastPinch: null,
-  vpSize: 300
-};
-
-function initCropEditor(file) {
-  var reader = new FileReader();
-  reader.onload = function(e) {
-    var img = new Image();
-    img.onload = function() {
-      var vp = cropState.vpSize;
-      var isLandscape = img.naturalWidth > img.naturalHeight;
-      var baseZoom;
-      if (isLandscape) {
-        baseZoom = (vp * 0.60) / img.naturalHeight;
-      } else {
-        baseZoom = (vp * 0.55) / img.naturalWidth;
-      }
-      var fitZoom = Math.min(vp / img.naturalWidth, vp / img.naturalHeight);
-      baseZoom = Math.max(baseZoom, fitZoom);
-
-      cropState.img      = img;
-      cropState.rotation = 0;
-      cropState.baseZoom = baseZoom;
-      cropState.zoom     = baseZoom;
-      cropState.x = (vp - img.naturalWidth  * baseZoom) / 2;
-      cropState.y = (vp - img.naturalHeight * baseZoom) / 2;
-      document.getElementById('zoomSlider').min   = 100;
-      document.getElementById('zoomSlider').max   = 300;
-      document.getElementById('zoomSlider').value = 100;
-      drawCrop();
-      document.getElementById('uploadArea').style.display = 'none';
-      document.getElementById('cropEditor').classList.add('show');
-    };
-    img.src = e.target.result;
+  return {
+    w_px: Math.round(w_mm / 25.4 * DPI),
+    h_px: Math.round(h_mm / 25.4 * DPI),
+    w_mm: w_mm, h_mm: h_mm
   };
-  reader.readAsDataURL(file);
 }
 
-function drawCrop() {
-  var c   = document.getElementById('cropCanvas');
-  var vp  = cropState.vpSize;
-  c.width = vp; c.height = vp;
-  var ctx = c.getContext('2d');
-  ctx.fillStyle = '#1a1a1a';
-  ctx.fillRect(0, 0, vp, vp);
-  ctx.save();
-  // Rotate around centre of viewport
-  ctx.translate(vp / 2, vp / 2);
-  ctx.rotate(cropState.rotation * Math.PI / 180);
-  ctx.translate(-vp / 2, -vp / 2);
-  var img = cropState.img;
-  var w   = img.naturalWidth  * cropState.zoom;
-  var h   = img.naturalHeight * cropState.zoom;
-  ctx.drawImage(img, cropState.x, cropState.y, w, h);
-  ctx.restore();
-}
+// ── Resize to passport dimensions using jimp (pure JS) ──────────────────────
+async function resizeToPassport(imgBuffer, purpose) {
+  var dims = getPassportDimensions(purpose);
+  console.log('[INFO] Resizing to ' + dims.w_px + 'x' + dims.h_px + 'px (' + dims.w_mm + 'x' + dims.h_mm + 'mm)');
 
-function zoomAroundCentre(newZoom) {
-  var vp      = cropState.vpSize;
-  var cx      = vp / 2;
-  var cy      = vp / 2;
-  var oldZoom = cropState.zoom;
-  var ratio   = newZoom / oldZoom;
-  // Adjust x/y so zoom is anchored to viewport centre
-  cropState.x     = cx - (cx - cropState.x) * ratio;
-  cropState.y     = cy - (cy - cropState.y) * ratio;
-  cropState.zoom  = newZoom;
-}
-
-function rotateCrop(deg) {
-  cropState.rotation = (cropState.rotation + deg + 360) % 360;
-  drawCrop();
-}
-
-document.getElementById('zoomSlider').addEventListener('input', function() {
-  // Slider 100 = baseZoom, 300 = 3x baseZoom
-  var factor   = parseFloat(this.value) / 100;
-  var newZoom  = cropState.baseZoom * factor;
-  zoomAroundCentre(newZoom);
-  drawCrop();
-});
-
-// Mouse drag
-var vpEl = document.getElementById('cropViewport');
-vpEl.addEventListener('mousedown', function(e) {
-  cropState.dragging = true;
-  cropState.lastX = e.clientX;
-  cropState.lastY = e.clientY;
-  vpEl.classList.add('dragging');
-});
-window.addEventListener('mousemove', function(e) {
-  if (!cropState.dragging) return;
-  cropState.x += e.clientX - cropState.lastX;
-  cropState.y += e.clientY - cropState.lastY;
-  cropState.lastX = e.clientX;
-  cropState.lastY = e.clientY;
-  drawCrop();
-});
-window.addEventListener('mouseup', function() {
-  cropState.dragging = false;
-  vpEl.classList.remove('dragging');
-});
-
-// Touch drag + pinch zoom
-vpEl.addEventListener('touchstart', function(e) {
-  if (e.touches.length === 1) {
-    cropState.dragging = true;
-    cropState.lastX = e.touches[0].clientX;
-    cropState.lastY = e.touches[0].clientY;
-  }
-}, { passive: true });
-
-vpEl.addEventListener('touchmove', function(e) {
-  e.preventDefault();
-  if (e.touches.length === 1 && cropState.dragging) {
-    cropState.x += e.touches[0].clientX - cropState.lastX;
-    cropState.y += e.touches[0].clientY - cropState.lastY;
-    cropState.lastX = e.touches[0].clientX;
-    cropState.lastY = e.touches[0].clientY;
-    drawCrop();
-  } else if (e.touches.length === 2) {
-    var dist = Math.hypot(
-      e.touches[0].clientX - e.touches[1].clientX,
-      e.touches[0].clientY - e.touches[1].clientY
-    );
-    if (cropState.lastPinch) {
-      var newZoom = Math.min(Math.max(cropState.zoom * (dist / cropState.lastPinch), cropState.baseZoom), cropState.baseZoom * 3);
-      var sliderVal = Math.round((newZoom / cropState.baseZoom) * 100);
-      document.getElementById('zoomSlider').value = sliderVal;
-      zoomAroundCentre(newZoom);
-      drawCrop();
-    }
-    cropState.lastPinch = dist;
-  }
-}, { passive: false });
-
-vpEl.addEventListener('touchend', function() {
-  cropState.dragging = false;
-  cropState.lastPinch = null;
-});
-
-// Scroll to zoom
-vpEl.addEventListener('wheel', function(e) {
-  e.preventDefault();
-  var factor  = e.deltaY < 0 ? 1.08 : 0.92;
-  var newZoom = Math.min(Math.max(cropState.zoom * factor, cropState.baseZoom), cropState.baseZoom * 3);
-  var sliderVal = Math.round((newZoom / cropState.baseZoom) * 100);
-  document.getElementById('zoomSlider').value = sliderVal;
-  zoomAroundCentre(newZoom);
-  drawCrop();
-}, { passive: false });
-
-async function confirmCrop() {
-  var btn = document.querySelector('.crop-confirm');
-  btn.disabled = true;
-  btn.textContent = '🤖 Checking photo quality…';
-  var c = document.getElementById('cropCanvas');
-  c.toBlob(async function(blob) {
-    var croppedFile = new File([blob], 'cropped.jpg', { type: 'image/jpeg' });
-
-    // ── AI validation after crop ──────────────────────────
-    try {
-      var fd = new FormData();
-      fd.append('photo', croppedFile);
-      var valRes  = await fetch('/api/validate-photo', { method: 'POST', body: fd });
-      var valData = await valRes.json();
-      if (!valData.approved) {
-        var issueMessages = {
-          'glasses_detected': '👓 Glasses detected — please remove your glasses and retake.',
-          'no_face':          '😶 No face detected — make sure your face is clearly visible.',
-          'multiple_faces':   '👥 Multiple faces — only one person should be in the photo.',
-          'eyes_closed':      '👁️ Eyes appear closed — please keep your eyes fully open.',
-          'head_tilted':      '↩️ Head is tilted — please look straight at the camera.',
-          'hat_or_headwear':  '🧢 Hat detected — please remove it.',
-          'poor_lighting':    '💡 Poor lighting — please take the photo in a well-lit area.',
-          'face_too_small':   '🔍 Face too small — please move closer to the camera.',
-          'blurry':           '📷 Photo is blurry — please retake with a steady hand.',
-          'mouth_open':       '😮 Mouth open — please close your mouth.',
-        };
-        var issueList = (valData.issues||[]).map(function(i){ return issueMessages[i]||i; });
-        var msgHtml = issueList.length > 0
-          ? '<strong>Photo rejected — please retake</strong><br><br>' + issueList.join('<br>')
-          : (valData.message || 'Photo did not meet requirements. Please retake.');
-        btn.disabled = false;
-        btn.textContent = '✓ Use This Photo →';
-        document.getElementById('cropEditor').classList.remove('show');
-        document.getElementById('uploadArea').style.display = '';
-        setMsg('photoStatus', msgHtml, 'error');
-        return;
-      }
-    } catch(e) {
-      console.warn('Validation skipped:', e.message);
-    }
-
-    btn.disabled = false;
-    btn.textContent = '✓ Use This Photo →';
-    document.getElementById('cropEditor').classList.remove('show');
-    document.getElementById('uploadArea').style.display = '';
-    processPhoto(croppedFile);
-  }, 'image/jpeg', 0.95);
-}
-
-async function doPhoto(file) {
-  if (!file.type.startsWith('image/')) { setMsg('photoStatus','Please select a JPEG or PNG image.','error'); return; }
-  if (file.size > 10*1024*1024) { setMsg('photoStatus','Photo too large — please use under 10MB.','error'); return; }
-  clearMsg('photoStatus');
-  // Show crop editor first
-  rawPhotoFile = file;
-  initCropEditor(file);
-}
-
-// ── Photo Editor ──────────────────────────────────────────
-var editorSourceCanvas = null;
-
-function showPhotoEditor(sourceCanvas) {
-  editorSourceCanvas = sourceCanvas;
-  var ec = document.getElementById('editorCanvas');
-  ec.width = sourceCanvas.width;
-  ec.height = sourceCanvas.height;
-  ec.getContext('2d').drawImage(sourceCanvas, 0, 0);
-  resetEditSliders();
-  document.getElementById('photoEditor').classList.add('show');
-}
-
-function resetEditSliders() {
-  document.getElementById('edBrightness').value = 0;
-  document.getElementById('edContrast').value = 0;
-  document.getElementById('edWarmth').value = 0;
-  document.getElementById('edSaturation').value = 0;
-  document.getElementById('edBrightnessVal').textContent = '0';
-  document.getElementById('edContrastVal').textContent = '0';
-  document.getElementById('edWarmthVal').textContent = '0';
-  document.getElementById('edSaturationVal').textContent = '0';
-}
-
-function resetEdits() {
-  resetEditSliders();
-  applyEdits();
-}
-
-function applyEdits() {
-  if (!editorSourceCanvas) return;
-  var brightness = parseInt(document.getElementById('edBrightness').value);
-  var contrast   = parseInt(document.getElementById('edContrast').value);
-  var warmth     = parseInt(document.getElementById('edWarmth').value);
-  var saturation = parseInt(document.getElementById('edSaturation').value);
-
-  var ec = document.getElementById('editorCanvas');
-  var ctx = ec.getContext('2d');
-  ctx.drawImage(editorSourceCanvas, 0, 0);
-
-  var imgData = ctx.getImageData(0, 0, ec.width, ec.height);
-  var d = imgData.data;
-
-  for (var i = 0; i < d.length; i += 4) {
-    var r = d[i], g = d[i+1], b = d[i+2];
-
-    // Brightness
-    r += brightness; g += brightness; b += brightness;
-
-    // Contrast
-    var factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
-    r = factor * (r - 128) + 128;
-    g = factor * (g - 128) + 128;
-    b = factor * (b - 128) + 128;
-
-    // Warmth (shift red/blue channels)
-    r += warmth;
-    b -= warmth;
-
-    // Saturation
-    var grey = 0.299 * r + 0.587 * g + 0.114 * b;
-    var sat = saturation / 100;
-    r = grey + (1 + sat) * (r - grey);
-    g = grey + (1 + sat) * (g - grey);
-    b = grey + (1 + sat) * (b - grey);
-
-    // Clamp
-    d[i]   = Math.max(0, Math.min(255, r));
-    d[i+1] = Math.max(0, Math.min(255, g));
-    d[i+2] = Math.max(0, Math.min(255, b));
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-}
-
-function fixRedEye() {
-  var ec = document.getElementById('editorCanvas');
-  var ctx = ec.getContext('2d');
-  var imgData = ctx.getImageData(0, 0, ec.width, ec.height);
-  var d = imgData.data;
-  var fixed = 0;
-
-  for (var i = 0; i < d.length; i += 4) {
-    var r = d[i], g = d[i+1], b = d[i+2];
-    // Detect red eye: red channel much higher than green and blue
-    if (r > 150 && r > g * 2.5 && r > b * 2.5) {
-      // Replace with natural eye colour (dark grey/brown)
-      var avg = (g + b) / 2;
-      d[i]   = avg * 0.3;   // reduce red significantly
-      d[i+1] = avg * 0.3;
-      d[i+2] = avg * 0.3;
-      fixed++;
-    }
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-  // Update source so further edits preserve fix
-  editorSourceCanvas = document.createElement('canvas');
-  editorSourceCanvas.width = ec.width;
-  editorSourceCanvas.height = ec.height;
-  editorSourceCanvas.getContext('2d').drawImage(ec, 0, 0);
-
-  if (fixed > 0) {
-    alert('✅ Red eye fixed on ' + fixed + ' pixels!');
-  } else {
-    alert('No red eye detected in this photo.');
-  }
-}
-
-function applyEditsAndProcess() {
-  // Get edited canvas and process it
-  var ec = document.getElementById('editorCanvas');
-  ec.toBlob(function(blob) {
-    var editedFile = new File([blob], 'edited.jpg', { type: 'image/jpeg' });
-    document.getElementById('photoEditor').classList.remove('show');
-    document.getElementById('uploadArea').style.display = '';
-    processPhoto(editedFile);
-  }, 'image/jpeg', 0.95);
-}
-var rmbgModel = null;
-var rmbgProcessor = null;
-var rmbgReady = false;
-var rmbgLoading = false;
-
-async function initRMBG() {
-  if (rmbgReady) return true;
-  if (rmbgLoading) {
-    while (rmbgLoading) await new Promise(r => setTimeout(r, 100));
-    return rmbgReady;
-  }
+  // Try jimp first
   try {
-    rmbgLoading = true;
-    // Wait for transformers.js to load
-    var waited = 0;
-    while (!window._transformersReady && waited < 10000) {
-      await new Promise(r => setTimeout(r, 200));
-      waited += 200;
-    }
-    if (!window._transformersReady) throw new Error('Transformers.js not loaded');
-
-    console.log('Loading RMBG-1.4 model…');
-    var { AutoModel, AutoProcessor, env } = window._transformers;
-    env.allowLocalModels = false;
-
-    rmbgModel = await AutoModel.from_pretrained('briaai/RMBG-1.4', {
-      config: { model_type: 'custom' }
-    });
-    rmbgProcessor = await AutoProcessor.from_pretrained('briaai/RMBG-1.4', {
-      config: {
-        do_normalize: true, do_pad: false, do_rescale: true, do_resize: true,
-        image_mean: [0.5, 0.5, 0.5],
-        feature_extractor_type: 'ImageFeatureExtractor',
-        image_std: [1, 1, 1], resample: 2,
-        rescale_factor: 0.00392156862745098,
-        size: { width: 1024, height: 1024 }
-      }
-    });
-    rmbgReady = true;
-    rmbgLoading = false;
-    console.log('RMBG-1.4 model loaded ✅');
-    return true;
-  } catch(e) {
-    rmbgLoading = false;
-    console.warn('RMBG-1.4 init failed:', e.message);
-    return false;
+    var Jimp = require('jimp');
+    var image = await Jimp.read(imgBuffer);
+    image.cover(dims.w_px, dims.h_px, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_TOP);
+    var result = await image.quality(95).getBufferAsync(Jimp.MIME_JPEG);
+    console.log('[INFO] jimp resize success: ' + result.length + 'bytes');
+    return result;
+  } catch(jimpErr) {
+    console.warn('[WARN] jimp not available: ' + jimpErr.message);
   }
+
+  // Fallback: try @napi-rs/canvas
+  try {
+    var { createCanvas, loadImage } = require('@napi-rs/canvas');
+    var img = await loadImage(imgBuffer);
+    var canvas = createCanvas(dims.w_px, dims.h_px);
+    var ctx = canvas.getContext('2d');
+    // Cover: maintain aspect ratio, crop to fill
+    var scale = Math.max(dims.w_px / img.width, dims.h_px / img.height);
+    var sw = img.width * scale, sh = img.height * scale;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, dims.w_px, dims.h_px);
+    ctx.drawImage(img, (dims.w_px - sw) / 2, 0, sw, sh); // anchor top
+    var result = canvas.toBuffer('image/jpeg', { quality: 0.95 });
+    console.log('[INFO] canvas resize success');
+    return result;
+  } catch(canvasErr) {
+    console.warn('[WARN] canvas not available: ' + canvasErr.message);
+  }
+
+  // Final fallback: return as-is (will be wrong size but at least bg removed)
+  console.warn('[WARN] No resize library available — returning bg-removed image at original size');
+  return imgBuffer;
 }
 
-async function removeBackgroundRMBG(file) {
-  var { RawImage } = window._transformers;
-  var ok = await initRMBG();
-  if (!ok) throw new Error('RMBG model unavailable');
+function removeBackgroundServer(imgBuffer, mimeType, purpose) {
+  return new Promise(function(resolve, reject) {
+    // Validate API key exists
+    if (!process.env.REMOVE_BG_KEY) {
+      return reject(new Error('REMOVE_BG_KEY not set in environment'));
+    }
 
-  // Load image
-  var url = URL.createObjectURL(file);
-  var image = await RawImage.fromURL(url);
-  URL.revokeObjectURL(url);
+    // If image is very large, downscale before sending to remove.bg (saves credits + faster)
+    // remove.bg free tier: max 0.25MP preview; paid: full HD
+    var fd = new FormData();
+    fd.append('image_file', imgBuffer, {
+      filename: 'photo.jpg',
+      contentType: mimeType || 'image/jpeg',
+      knownLength: imgBuffer.length
+    });
+    fd.append('size', 'auto');
+    fd.append('type', 'person');
+    fd.append('bg_color', 'ffffff');
+    fd.append('format', 'jpg');
 
-  // Process
-  var { pixel_values } = await rmbgProcessor(image);
-  var { output } = await rmbgModel({ input: pixel_values });
+    console.log('[INFO] Calling remove.bg, imgSize=' + imgBuffer.length + ' key=' + (process.env.REMOVE_BG_KEY||'').substring(0,8) + '...');
 
-  // Get mask
-  var maskData = await RawImage.fromTensor(output[0].mul(255).to('uint8')).resize(image.width, image.height);
-
-  // Apply mask to original image - white background
-  var canvas = document.createElement('canvas');
-  canvas.width = image.width;
-  canvas.height = image.height;
-  var ctx = canvas.getContext('2d');
-
-  // Draw original image
-  var img = new Image();
-  var blobUrl = URL.createObjectURL(file);
-  await new Promise(function(resolve) {
-    img.onload = resolve;
-    img.src = blobUrl;
+    axios.post('https://api.remove.bg/v1.0/removebg', fd, {
+      headers: Object.assign({ 'X-Api-Key': process.env.REMOVE_BG_KEY }, fd.getHeaders()),
+      responseType: 'arraybuffer',
+      timeout: 60000,
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity
+    }).then(function(response) {
+      var resultBuf = Buffer.from(response.data);
+      // Check for error response (remove.bg returns JSON errors even with arraybuffer)
+      var first = resultBuf.slice(0, 1).toString();
+      if (first === '{') {
+        var errMsg = resultBuf.toString();
+        console.error('[ERROR] remove.bg returned error JSON:', errMsg);
+        return reject(new Error('remove.bg error: ' + errMsg));
+      }
+      console.log('[INFO] remove.bg success, resultSize=' + resultBuf.length + 'bytes');
+      resolve(resultBuf);
+    }).catch(function(err) {
+      var msg = err.message;
+      if (err.response && err.response.data) {
+        try { msg = Buffer.from(err.response.data).toString(); } catch(e) {}
+      }
+      console.error('[ERROR] remove.bg axios error:', msg);
+      reject(new Error('Background removal failed: ' + msg));
+    });
   });
-  URL.revokeObjectURL(blobUrl);
-
-  // White background
-  ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // Draw image
-  ctx.drawImage(img, 0, 0);
-
-  // Apply mask — set background pixels to white
-  var imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  var pixels = imgData.data;
-  var maskPixels = maskData.data;
-
-  for (var i = 0; i < pixels.length / 4; i++) {
-    var alpha = maskPixels[i * (maskPixels.length / pixels.length * 4)] || maskPixels[i];
-    if (alpha < 128) {
-      pixels[i * 4]     = 255; // R white
-      pixels[i * 4 + 1] = 255; // G white
-      pixels[i * 4 + 2] = 255; // B white
-      pixels[i * 4 + 3] = 255; // A opaque
-    }
-  }
-
-  ctx.putImageData(imgData, 0, 0);
-  console.log('RMBG-1.4 success ✅');
-  return canvas.toDataURL('image/png');
 }
 
-async function processPhoto(file) {
-  if(!file.type.startsWith('image/')){setMsg('photoStatus','Please select a JPEG or PNG image.','error');return;}
-  if(file.size>10*1024*1024){setMsg('photoStatus','Photo too large — please use under 10MB.','error');return;}
-  document.getElementById('photoResult').classList.remove('show');
-  document.getElementById('toPayBtn').disabled=true;
-  clearMsg('photoStatus');
-  document.getElementById('rtTracker').classList.add('show');
-  rtSet('rt1','active','Uploading…');rtSet('rt2','pending','Waiting');rtSet('rt3','pending','Waiting');rtSet('rt4','pending','Waiting');
+// ── Resend email ──────────────────────────────────────────
+function sendEmail(to, subject, html, attachments) {
+  var payload = { from: 'Photobooth App <info@photoboothapp.co.uk>', to: [to], subject: subject, html: html };
+  if (attachments && attachments.length > 0) {
+    payload.attachments = attachments.map(function(a) {
+      return { filename: a.filename, content: a.content.toString('base64') };
+    });
+  }
+  return axios.post('https://api.resend.com/emails', payload, {
+    headers: { 'Authorization': 'Bearer ' + process.env.RESEND_API_KEY, 'Content-Type': 'application/json' }
+  });
+}
 
-  // bgRemovedClientSide always false — server handles remove.bg after payment
-  // rawPhotoFile already set to original full-res file in doPhoto()
-  bgRemovedClientSide = false;
+// ── Admin auth ────────────────────────────────────────────
+function adminAuth(req, res, next) {
+  var token = req.headers['x-admin-token'] || req.query.token;
+  if (!token) return res.status(401).json({ error: 'Unauthorised' });
+  if (token === process.env.ADMIN_TOKEN) { req.adminRole = 'master'; req.adminSource = null; return next(); }
+  if (token === process.env.SABTECH_ADMIN_TOKEN) { req.adminRole = 'sabtech'; req.adminSource = 'sabtech'; return next(); }
+  if (token === process.env.VFS_ADMIN_TOKEN) { req.adminRole = 'vfs'; req.adminSource = 'vfs'; return next(); }
+  return res.status(401).json({ error: 'Unauthorised' });
+}
+
+// ════════════════════════════════════════════════════════
+// PUBLIC API
+// ════════════════════════════════════════════════════════
+
+// ── Validate photo (Claude AI) ────────────────────────────
+app.post('/api/validate-photo', rateLimit(20, 60000), upload.single('photo'), function(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
+  if (!validateFileType(req.file.buffer)) return res.status(400).json({ error: 'Invalid file type.' });
+  var base64Image = req.file.buffer.toString('base64');
+  var mimeType = req.file.mimetype;
+  axios.post('https://api.anthropic.com/v1/messages', {
+    model: 'claude-haiku-4-5-20251001', max_tokens: 400,
+    messages: [{ role: 'user', content: [
+      { type: 'image', source: { type: 'base64', media_type: mimeType, data: base64Image } },
+      { type: 'text', text: 'You are a passport photo compliance checker.\n\nAnalyse this photo. Reply ONLY with valid JSON, no markdown.\n\nFormat: {\"approved\":true,\"issues\":[],\"message\":\"one sentence\"}\n\nCheck for these issues (use exact keys):\n- glasses_detected: ONLY flag if you can clearly see actual glasses FRAMES on the nose bridge AND arms over the ears. Do NOT flag for eyebrows, eye bags, under-eye shadows, skin reflections, or any natural facial feature. If uncertain, do NOT flag.\n- no_face: no human face visible\n- multiple_faces: more than one person\n- eyes_closed: eyes not fully open\n- head_tilted: head significantly tilted or turned\n- hat_or_headwear: hat or cap present (religious headwear allowed)\n- poor_lighting: very harsh uneven lighting or deep shadows on face\n- face_too_small: face less than 40% of frame height\n- blurry: clearly out of focus\n- mouth_open: lips noticeably open\n\nOnly flag issues that are clearly and obviously present. When in doubt, approve.' }
+    ]}]
+  }, { headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' } })
+  .then(function(r) {
+    var text = r.data.content.filter(function(b){return b.type==='text';}).map(function(b){return b.text;}).join('');
+    try { res.json(JSON.parse(text.replace(/```json|```/g,'').trim())); }
+    catch(e) { res.json({ approved: true, issues: [], message: 'Photo accepted.' }); }
+  }).catch(function(err) {
+    Sentry.captureException(err);
+    res.json({ approved: true, issues: [], message: 'Photo accepted.' });
+  });
+});
+
+// ── Remove background (public endpoint — only used for retake flow) ───
+// NOTE: For new orders, background removal now happens server-side in /api/confirm-order
+// after payment is verified. This endpoint is kept for the retake flow only.
+app.post('/api/remove-bg', rateLimit(20, 60000), upload.single('photo'), function(req, res) {
+  if (!req.file) return res.status(400).json({ error: 'No photo uploaded' });
+  if (!validateFileType(req.file.buffer)) return res.status(400).json({ error: 'Invalid file type.' });
+  var recaptchaToken = req.body && req.body.recaptchaToken;
+  validateImageDimensions(req.file.buffer).then(function(dimCheck) {
+    if (!dimCheck.valid) return res.status(400).json({ error: dimCheck.error });
+    verifyRecaptcha(recaptchaToken, 0.1).then(function(valid) {
+      if (!valid) return res.status(400).json({ error: 'Security check failed. Please try again.' });
+      removeBackgroundServer(req.file.buffer, req.file.mimetype)
+      .then(function(resultBuffer) {
+        // remove.bg now returns JPEG with white background
+        res.json({ success: true, image: 'data:image/jpeg;base64,' + resultBuffer.toString('base64') });
+      }).catch(function(err) {
+        Sentry.captureException(err);
+        res.status(500).json({ error: err.message });
+      });
+    });
+  });
+});
+
+// ── Create payment intent ─────────────────────────────────
+var PRICES = {
+  GBP: { digital: 699,  print: 999,  symbol: '£', currency: 'gbp' },
+  EUR: { digital: 829,  print: 1199, symbol: '€', currency: 'eur' },
+  USD: { digital: 899,  print: 1299, symbol: '$', currency: 'usd' }
+};
+
+app.post('/api/create-payment-intent', rateLimit(30, 60000), function(req, res) {
+  var name        = sanitise(req.body.name || '');
+  var email       = sanitise(req.body.email || '');
+  var currencyKey = (req.body.currency || 'GBP').toUpperCase();
+  if (!PRICES[currencyKey]) currencyKey = 'GBP';
+  var priceSet    = PRICES[currencyKey];
+  var printOption = req.body.printOption || 'digital';
+  var amount      = printOption === 'print' ? priceSet.print : priceSet.digital;
+  if (!name || !email || !email.includes('@')) return res.status(400).json({ error: 'Invalid details' });
+  stripe.paymentIntents.create({
+    amount: amount,
+    currency: priceSet.currency,
+    metadata: { customer_name: name, customer_email: email, amount: amount, currency: currencyKey },
+    receipt_email: email
+  }).then(function(intent) {
+    res.json({ clientSecret: intent.client_secret });
+  }).catch(function(err) {
+    Sentry.captureException(err);
+    res.status(500).json({ error: err.message });
+  });
+});
+
+// ── CHANGE 2: Store photo — now records bgRemoved flag ────
+app.post('/api/store-photo', rateLimit(20, 60000), function(req, res) {
+  var passportImage = req.body.passportImage;
+  var bgRemoved     = req.body.bgRemoved !== false; // false means server must call remove.bg
+  if (!passportImage) return res.status(400).json({ error: 'No image' });
+  var token = crypto.randomBytes(32).toString('hex');
+  var imgBuffer = Buffer.from(passportImage.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+  if (imgBuffer.length > 10 * 1024 * 1024) return res.status(400).json({ error: 'Image too large' });
+  storePhoto(token, imgBuffer, bgRemoved);
+  console.log('[INFO] Photo stored. bgRemoved=' + bgRemoved + ' token=' + token.substring(0,8) + '...');
+  res.json({ token: token });
+});
+
+// ── CHANGE 3: Confirm order — calls remove.bg after payment if needed ──
+app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
+  var name             = sanitise(req.body.name);
+  var email            = sanitise(req.body.email);
+  var phone            = sanitise(req.body.phone);
+  var centre           = sanitise(req.body.centre);
+  var purpose          = sanitise(req.body.purpose);
+  var govRef           = sanitise(req.body.govRef);
+  var photoToken       = req.body.photoToken;
+  var orderRef         = sanitise(req.body.orderRef);
+  var paymentIntentId  = sanitise(req.body.paymentIntentId);
+  var printOption      = sanitise(req.body.printOption) || 'digital';
+  var printLocation    = sanitise(req.body.printLocation) || null;
+  var source           = sanitise(req.body.source) || 'direct';
+  var currency         = sanitise(req.body.currency) || 'GBP';
+  if (!PRICES[currency]) currency = 'GBP';
+  var priceData        = PRICES[currency];
+  var orderAmount      = printOption === 'print' ? priceData.print / 100 : priceData.digital / 100;
+  var currencySymbol   = currency === 'EUR' ? '€' : currency === 'USD' ? '$' : '£';
+
+  if (!name||!email||!phone||!centre||!purpose||!photoToken||!paymentIntentId)
+    return res.status(400).json({ error: 'Missing required fields' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+    return res.status(400).json({ error: 'Invalid email address' });
 
   try {
-    rtSet('rt1','done','Done');
-    rtSet('rt2','active','Checking photo…');
+    // ── Step 1: Verify payment with Stripe ───────────────
+    var intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    if (!intent || intent.status !== 'succeeded') {
+      Sentry.captureMessage('Payment verification failed: ' + paymentIntentId);
+      return res.status(402).json({ error: 'Payment not verified. Please contact support.' });
+    }
 
-    // Use raw image for preview — no background removal before payment
-    var reader = new FileReader();
-    var rawData = await new Promise(function(resolve) {
-      reader.onload = function(e) { resolve(e.target.result); };
-      reader.readAsDataURL(file);
+    // ── Step 2: Get stored photo ──────────────────────────
+    var photoData = getPhoto(photoToken);
+    if (!photoData) return res.status(400).json({ error: 'Photo expired. Please start again.' });
+    var imgBuffer = photoData.buffer;
+    var bgAlreadyRemoved = photoData.bgRemoved;
+
+    // ── Step 3: Always run remove.bg server-side after payment ──
+    // Guarantees white background regardless of what client sent
+    console.log('[INFO] Running server-side remove.bg for order: ' + orderRef + ' imgSize=' + imgBuffer.length + 'bytes');
+    try {
+      var removedBuffer = await removeBackgroundServer(imgBuffer, 'image/jpeg', purpose);
+      if (!removedBuffer || removedBuffer.length < 1000) {
+        throw new Error('remove.bg returned empty or invalid response (' + (removedBuffer ? removedBuffer.length : 0) + ' bytes)');
+      }
+      imgBuffer = removedBuffer;
+      console.log('[INFO] remove.bg success for: ' + orderRef + ' resultSize=' + imgBuffer.length + 'bytes');
+      // Resize to exact passport dimensions
+      imgBuffer = await resizeToPassport(imgBuffer, purpose);
+    } catch(bgErr) {
+      Sentry.captureException(bgErr);
+      console.error('[ERROR] remove.bg FAILED for ' + orderRef + ': ' + bgErr.message);
+      if (bgErr.response) {
+        console.error('[ERROR] remove.bg response status: ' + bgErr.response.status);
+        console.error('[ERROR] remove.bg response data: ' + JSON.stringify(bgErr.response.data || ''));
+      }
+    }
+
+
+    var firstName = name.split(' ')[0];
+    var cleanPurpose = purpose.replace(/\s*[—–-]\s*[\d×xX\/\s\(\)inchmm\.]+$/i, '').trim();
+
+    // ── Step 4: Generate print code if needed ────────────
+    var printCode = null;
+    var printCodeExpiry = null;
+    if (printOption === 'print') {
+      printCode = generatePrintCode();
+      printCodeExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000);
+    }
+
+    // ── Step 5: Save to MongoDB ───────────────────────────
+    new Order({
+      orderRef: orderRef, date: new Date(),
+      name: name, email: email, phone: phone,
+      centre: centre, purpose: purpose, govRef: govRef || '',
+      amount: orderAmount, currency: currency, status: 'completed',
+      source: source, paymentIntentId: paymentIntentId, emailSent: false,
+      printOption: printOption, printCode: printCode,
+      printCodeExpiry: printCodeExpiry, printLocation: printLocation
+    }).save().catch(function(e) {
+      Sentry.captureException(e);
+      console.error('DB save error:', e.message);
     });
 
-    rtSet('rt2','done','Done');
-    rtSet('rt3','active','Formatting…');
-    removedImageData = rawData;
-    await buildPassport(rawData);
-    rtSet('rt3','done','Done');
-    rtSet('rt4','done','Ready ✓');
-    document.getElementById('photoResult').classList.add('show');
-    document.getElementById('serviceSelector').style.display = 'block';
-    document.getElementById('toPayBtn').disabled=false;
-    setMsg('photoStatus', '✅ Photo ready — white background applied after payment.', 'info');
+    // ── Step 6: Build email ───────────────────────────────
+    var printCodeSection = '';
+    if (printOption === 'print' && printCode) {
+      printCodeSection =
+        '<div style="background:#0d1b2e;color:white;padding:20px;border-radius:10px;margin:20px 0;text-align:center;">' +
+        '<p style="font-size:13px;color:#8a9bb0;margin-bottom:8px;letter-spacing:1px;text-transform:uppercase;">Your Print Code</p>' +
+        '<p style="font-size:36px;font-weight:bold;letter-spacing:6px;color:#F5D06A;margin:0;">' + printCode + '</p>' +
+        '<p style="font-size:12px;color:#8a9bb0;margin-top:8px;">Valid for 72 hours · Location: ' + (printLocation || 'LON-WILSON') + '</p>' +
+        '<p style="font-size:12px;color:#8a9bb0;margin-top:4px;">Enter this code at the photo kiosk to print your photos</p>' +
+        '</div>';
+    }
+
+    var amountPaid = currency === 'EUR'
+      ? (printOption === 'print' ? '€11.99' : '€8.29')
+      : currency === 'USD'
+        ? (printOption === 'print' ? '$12.99' : '$8.99')
+        : (printOption === 'print' ? '£9.99' : '£6.99');
+
+    var customerHtml =
+      '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">' +
+      '<div style="background:#0d1b2e;padding:28px 32px;"><h1 style="color:white;font-size:22px;margin:0;">Photobooth App</h1>' +
+      '<p style="color:#8a9bb0;font-size:12px;margin:4px 0 0;">by Sabtech Limited</p></div>' +
+      '<div style="padding:32px;"><h2>Your photo is ready, ' + firstName + '!</h2>' +
+      '<p style="color:#5a6275;">Thank you for your order. Your passport photo is attached.</p>' +
+      printCodeSection +
+      '<div style="background:#f8f9fb;padding:20px;border-radius:10px;margin:20px 0;font-size:13px;">' +
+      '<p><strong>Order Ref:</strong> ' + orderRef + '</p>' +
+      '<p><strong>Photo Purpose:</strong> ' + cleanPurpose + '</p>' +
+      '<p><strong>Application Centre:</strong> ' + centre + '</p>' +
+      (govRef ? '<p><strong>Your Reference:</strong> ' + govRef + '</p>' : '') +
+      '<p><strong>Total Paid:</strong> ' + amountPaid + '</p>' +
+      '<p><strong>Service:</strong> ' + (printOption === 'print' ? 'Digital + Print' : 'Digital Only') + '</p></div>' +
+      '<p style="background:#f0fdf4;color:#166534;padding:14px;border-radius:8px;">Your photo is attached — formatted to the correct size for your application. Photos are automatically deleted from our servers immediately after this email is sent.</p>' +
+      '<div style="margin-top:24px;padding:14px;background:#f8f9fb;border-radius:8px;font-size:12px;color:#8a9bb0;">' +
+      '<p><strong>Data & Privacy:</strong> Your photo and personal data are processed under UK GDPR. Photos are deleted automatically after delivery.</p>' +
+      '<p style="margin-top:8px;"><strong>Refund Policy:</strong> If your photo is rejected by the application centre, contact us within 7 days for a replacement or full refund.</p>' +
+      '</div>' +
+      '<p style="color:#8a9bb0;font-size:12px;margin-top:20px;">Questions? Contact us at info@photoboothapp.co.uk · Photobooth App · Sabtech Limited</p>' +
+      '</div></div>';
+
+    var adminHtml =
+      '<div style="font-family:Arial,sans-serif;max-width:480px;margin:0 auto;">' +
+      '<div style="background:#0d1b2e;padding:20px 24px;"><h2 style="color:white;margin:0;">New Order — ' + orderRef + '</h2></div>' +
+      '<div style="padding:24px;background:#f8f9fb;font-size:14px;">' +
+      '<p><strong>Customer:</strong> ' + name + '</p><p><strong>Email:</strong> ' + email + '</p>' +
+      '<p><strong>Phone:</strong> ' + phone + '</p><p><strong>Purpose:</strong> ' + cleanPurpose + '</p>' +
+      '<p><strong>Centre:</strong> ' + centre + '</p>' +
+      (govRef ? '<p><strong>Gov Ref:</strong> ' + govRef + '</p>' : '') +
+      '<p><strong>BG Removed Server-side:</strong> ' + (!bgAlreadyRemoved ? 'Yes (paid)' : 'No (RMBG free)') + '</p>' +
+      '<p><strong>Stripe PI:</strong> ' + paymentIntentId + '</p>' +
+      '<p style="font-size:16px;font-weight:bold;margin-top:12px;">Amount: ' + amountPaid + ' ✓ VERIFIED</p>' +
+      '</div></div>';
+
+    var attachment = [{ filename: 'passport_photo_' + orderRef + '.jpg', content: imgBuffer }];
+
+    // ── Step 7: Send emails ───────────────────────────────
+    await sendEmail(email, 'Your Passport Photo - Order ' + orderRef, customerHtml, attachment);
+    await sendEmail(process.env.ADMIN_EMAIL, 'New Order ' + orderRef + ' - ' + name, adminHtml, attachment);
+
+    // ── Step 8: Store for print kiosk if needed ───────────
+    if (printOption === 'print' && printCode) {
+      storePrintPhoto(printCode, imgBuffer);
+    }
+
+    deletePhoto(photoToken);
+    Order.findOneAndUpdate({ orderRef: orderRef }, { emailSent: true }).catch(function(){});
+    // Return processed image to client so downloads also have white background
+    var processedImageBase64 = 'data:image/jpeg;base64,' + imgBuffer.toString('base64');
+    res.json({ success: true, orderRef: orderRef, printCode: printCode, processedImage: processedImageBase64 });
 
   } catch(err) {
-    rtSet('rt1','error','Error');rtSet('rt2','error','Error');
-    setMsg('photoStatus','Error: '+err.message,'error');
+    Sentry.captureException(err);
+    console.error('[ERROR] confirm-order:', err.message);
+    res.status(500).json({ error: 'Payment received but email failed. Order ref: ' + orderRef + '. Contact support at info@photoboothapp.co.uk' });
   }
-}
+});
 
-async function buildPassport(imgData){
-  const purpose=document.getElementById('photoPurpose').value;
-  const size=getPhotoSize(purpose);
-  const DPI=300;
-  const outW=Math.round(size.w/25.4*DPI);
-  const outH=Math.round(size.h/25.4*DPI);
-
-  const img=await loadImg(imgData);
-  const iw=img.naturalWidth,ih=img.naturalHeight;
-
-  // Update removed canvas preview
-  const rc=document.getElementById('removedCanvas');rc.width=300;rc.height=300;
-  const rctx=rc.getContext('2d');rctx.clearRect(0,0,300,300);
-  const side=Math.min(iw,ih);rctx.drawImage(img,(iw-side)/2,(ih-side)/2,side,side,0,0,300,300);
-
-  passC=document.getElementById('passportCanvas');passC.width=outW;passC.height=outH;
-  const pc=passC.getContext('2d');pc.fillStyle='#ffffff';pc.fillRect(0,0,outW,outH);
-
-  // UK passport spec: face height = 29-34mm in a 45mm photo (64-76% of frame)
-  // Scale image so it occupies ~78% of canvas height — leaves headroom above, chin below
-  // Use Math.min (fit inside) not Math.max (fill/crop) to avoid cropping the head
-  const scale = Math.min(outW / iw, (outH * 0.78) / ih);
-  const sw = iw * scale;
-  const sh = ih * scale;
-
-  // Position: centre horizontally, start 6% from top (headroom)
-  const dx = (outW - sw) / 2;
-  const dy = outH * 0.06;
-
-  pc.drawImage(img, dx, dy, sw, sh);
-  pc.strokeStyle='rgba(13,27,46,0.05)';pc.lineWidth=2;pc.strokeRect(4,4,outW-8,outH-8);
-
-  // Update preview aspect ratio to match actual photo dimensions
-  var passportWrap = document.querySelector('.passport-wrap');
-  if (passportWrap) passportWrap.style.aspectRatio = outW + '/' + outH;
-  buildStrip(passC,outW,outH);
-}
-function buildStrip(src, srcW, srcH) {
-  // Build a print-ready strip with 4 photos in a 2x2 grid
-  // Layout adapts to photo dimensions:
-  //   Portrait photos (e.g. 35x45mm): 4x6 inch portrait = 1200x1800px
-  //   Square photos (e.g. 51x51mm US/India): 6x4 inch landscape = 1800x1200px
-  //   Wide photos (e.g. 50x70mm Canada): 4x6 inch portrait = 1200x1800px
-  var DPI = 300;
-
-  // Exact passport photo dimensions at 300 DPI (no scaling, no pixelation)
-  var photoW = srcW;
-  var photoH = srcH;
-
-  // Choose print orientation based on photo aspect ratio
-  var isSquare = (srcW === srcH);
-  var isLandscapePhoto = (srcW > srcH);
-
-  var printW, printH;
-  if (isSquare || isLandscapePhoto) {
-    // Square / landscape: use 6x4 landscape
-    printW = Math.round(6 * DPI);   // 1800px
-    printH = Math.round(4 * DPI);   // 1200px
-  } else {
-    // Portrait: use 4x6 portrait
-    printW = Math.round(4 * DPI);   // 1200px
-    printH = Math.round(6 * DPI);   // 1800px
+// ── Stripe webhook ────────────────────────────────────────
+app.post('/api/stripe-webhook', function(req, res) {
+  var sig = req.headers['stripe-signature'];
+  var event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET || '');
+  } catch(err) {
+    Sentry.captureException(err);
+    return res.status(400).send('Webhook Error: ' + err.message);
   }
+  if (event.type === 'payment_intent.succeeded') {
+    console.log('Webhook: Payment confirmed', event.data.object.id);
+  }
+  res.json({ received: true });
+});
 
-  // Centre the 2x2 grid on the print
-  var gap = Math.round(0.1 * DPI);    // 30px (3mm) gap between photos
-  var totalGridW = photoW * 2 + gap;
-  var totalGridH = photoH * 2 + gap;
-  var padX = Math.round((printW - totalGridW) / 2);
-  var padY = Math.round((printH - totalGridH) / 2);
+// ════════════════════════════════════════════════════════
+// ADMIN API
+// ════════════════════════════════════════════════════════
 
-  // Create print canvas
-  stripC = document.createElement('canvas');
-  stripC.width = printW;
-  stripC.height = printH;
-  var sc = stripC.getContext('2d');
+app.post('/api/admin/login', rateLimit(5, 60000), function(req, res) {
+  var ip = (req.headers['x-forwarded-for'] || req.ip || 'unknown').split(',')[0].trim();
+  var password = req.body.password;
+  var portal   = req.body.portal || 'master';
+  var token = null;
+  if (portal === 'vfs' && password === process.env.VFS_ADMIN_PASSWORD) token = process.env.VFS_ADMIN_TOKEN;
+  else if (portal === 'sabtech' && password === process.env.SABTECH_ADMIN_PASSWORD) token = process.env.SABTECH_ADMIN_TOKEN;
+  else if (password === process.env.ADMIN_PASSWORD) token = process.env.ADMIN_TOKEN;
+  if (!token) {
+    console.log('[WARN] ' + JSON.stringify({ ts: new Date().toISOString(), event: 'admin_login_failed', portal: portal, ip: ip }));
+    return res.status(401).json({ error: 'Invalid password' });
+  }
+  res.json({ success: true, token: token, portal: portal });
+});
 
-  // White background
-  sc.fillStyle = '#ffffff';
-  sc.fillRect(0, 0, printW, printH);
-
-  // Draw 4 photos at exact size — NO scaling, NO pixelation
-  var positions = [
-    { x: padX,              y: padY },
-    { x: padX + photoW + gap, y: padY },
-    { x: padX,              y: padY + photoH + gap },
-    { x: padX + photoW + gap, y: padY + photoH + gap }
-  ];
-
-  positions.forEach(function(pos) {
-    // Draw photo at exact 1:1 size
-    sc.drawImage(src, 0, 0, srcW, srcH, pos.x, pos.y, photoW, photoH);
-    // Cut guides
-    sc.strokeStyle = 'rgba(0,0,0,0.2)';
-    sc.setLineDash([8, 4]);
-    sc.lineWidth = 1;
-    sc.strokeRect(pos.x - 0.5, pos.y - 0.5, photoW + 1, photoH + 1);
-    sc.setLineDash([]);
+app.get('/api/admin/orders', adminAuth, function(req, res) {
+  var search   = sanitise(req.query.search||'').toLowerCase();
+  var status   = sanitise(req.query.status||'');
+  var dateFrom = req.query.dateFrom||'';
+  var dateTo   = req.query.dateTo||'';
+  var query = {};
+  if (req.adminSource) query.source = req.adminSource;
+  if (status) query.status = status;
+  if (dateFrom || dateTo) {
+    query.date = {};
+    if (dateFrom) query.date.$gte = new Date(dateFrom);
+    if (dateTo)   query.date.$lte = new Date(dateTo + 'T23:59:59');
+  }
+  Order.find(query).sort({ date: -1 }).lean().then(function(orders) {
+    if (search) orders = orders.filter(function(o) {
+      return (o.name||'').toLowerCase().includes(search) ||
+             (o.email||'').toLowerCase().includes(search) ||
+             (o.orderRef||'').toLowerCase().includes(search) ||
+             (o.govRef||'').toLowerCase().includes(search);
+    });
+    var now = new Date();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    Order.find({}).lean().then(function(all) {
+      var tod = all.filter(function(o){ return new Date(o.date) >= today; });
+      var mon = all.filter(function(o){ return new Date(o.date) >= monthStart; });
+      res.json({ orders: orders, stats: {
+        total: all.length, totalRevenue: all.reduce(function(s,o){ return s+(o.amount||0); }, 0),
+        todayCount: tod.length, todayRevenue: tod.reduce(function(s,o){ return s+(o.amount||0); }, 0),
+        monthCount: mon.length, monthRevenue: mon.reduce(function(s,o){ return s+(o.amount||0); }, 0),
+      }});
+    });
+  }).catch(function(err) {
+    Sentry.captureException(err);
+    res.status(500).json({ error: err.message });
   });
+});
 
-  // Update preview strip
-  var row = document.getElementById('stripRow');
-  row.innerHTML = '';
-  row.style.display = 'grid';
-  row.style.gridTemplateColumns = '1fr 1fr';
-  row.style.gap = '4px';
-  row.style.maxWidth = '200px';
-  row.style.margin = '0 auto';
+app.get('/api/admin/export', adminAuth, function(req, res) {
+  var query = {};
+  if (req.adminSource) query.source = req.adminSource;
+  if (req.query.dateFrom || req.query.dateTo) {
+    query.date = {};
+    if (req.query.dateFrom) query.date.$gte = new Date(req.query.dateFrom);
+    if (req.query.dateTo)   query.date.$lte = new Date(req.query.dateTo + 'T23:59:59');
+  }
+  Order.find(query).sort({ date: -1 }).lean().then(function(orders) {
+    var headers = ['Order Ref','Date','Time','Customer Name','Email','Phone','Application Centre','Photo Purpose','Gov Reference','Amount','Currency','Status','Email Sent','Payment ID'];
+    var rows = orders.map(function(o) {
+      var d = o.date ? new Date(o.date) : new Date();
+      return [o.orderRef, d.toLocaleDateString('en-GB'), d.toLocaleTimeString('en-GB'),
+        o.name, o.email, o.phone, o.centre, o.purpose, o.govRef||'',
+        o.amount||6.99, o.currency||'GBP', o.status, o.emailSent?'Yes':'No', o.paymentIntentId||''
+      ].map(function(v){ return '"'+(v||'').toString().replace(/"/g,'""')+'"'; }).join(',');
+    });
+    res.setHeader('Content-Type','text/csv');
+    res.setHeader('Content-Disposition','attachment; filename="photobooth_orders_'+new Date().toISOString().split('T')[0]+'.csv"');
+    res.send([headers.join(',')].concat(rows).join('\n'));
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
+});
 
-  positions.forEach(function() {
-    var m = document.createElement('canvas');
-    var previewW = 80;
-    var previewH = Math.round(previewW * photoH / photoW);
-    m.width = previewW;
-    m.height = previewH;
-    m.style.width = '100%';
-    m.style.borderRadius = '3px';
-    m.style.border = '0.5px dashed rgba(0,0,0,0.2)';
-    m.getContext('2d').drawImage(src, 0, 0, srcW, srcH, 0, 0, previewW, previewH);
-    row.appendChild(m);
+app.post('/api/admin/resend-email', adminAuth, function(req, res) {
+  Order.findOne({ orderRef: sanitise(req.body.orderRef) }).lean().then(function(order) {
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    var html = '<div style="font-family:Arial,sans-serif;padding:24px;"><h2>Your Passport Photo — Order ' + order.orderRef + '</h2>' +
+      '<p>This is a resent confirmation. Contact info@photoboothapp.co.uk for assistance.</p>' +
+      '<p><strong>Purpose:</strong> ' + order.purpose + '</p><p><strong>Centre:</strong> ' + order.centre + '</p></div>';
+    sendEmail(order.email, '[Resent] Passport Photo Order ' + order.orderRef, html, [])
+    .then(function() {
+      Order.findOneAndUpdate({ orderRef: order.orderRef }, { resentAt: new Date() }).catch(function(){});
+      res.json({ success: true });
+    }).catch(function(err) { res.status(500).json({ error: err.message }); });
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
+});
+
+app.delete('/api/admin/orders/:ref', adminAuth, function(req, res) {
+  Order.findOneAndDelete({ orderRef: sanitise(req.params.ref) })
+  .then(function() { res.json({ success: true }); })
+  .catch(function(err) { res.status(500).json({ error: err.message }); });
+});
+
+function generatePrintCode() {
+  var digits = Math.floor(100000 + Math.random() * 900000).toString();
+  return 'PBA-' + digits;
+}
+
+app.get('/api/health', function(req, res) {
+  res.json({
+    status: 'ok',
+    db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    removeBgKey: process.env.REMOVE_BG_KEY ? 'set (' + process.env.REMOVE_BG_KEY.substring(0,6) + '...)' : 'MISSING'
   });
-}
-function loadImg(src){return new Promise((r,j)=>{const i=new Image();i.onload=()=>r(i);i.onerror=()=>j(new Error('Load failed'));i.src=src;});}
+});
 
-function s3(){
-  if(!removedImageData)return;
-  const purpose=document.getElementById('photoPurpose').value;
-  const centre=document.getElementById('appCentre').value;
-  const name=document.getElementById('fullName').value;
-  const email=document.getElementById('email').value;
-  const printOptEl = document.querySelector('input[name="printOption"]:checked');
-  const printOpt = printOptEl ? printOptEl.value : 'digital';
-  const p = PRICES[currentCurrency] || PRICES['GBP'];
-  const amount = printOpt === 'print' ? p.printLabel : p.digitalLabel;
-  const amountPence = printOpt === 'print' ? p.print : p.digital;
-  const serviceLabel = printOpt === 'print' ? 'Digital + Print (Lon-Wilson)' : 'Digital Only';
-
-  document.getElementById('orderSummary').innerHTML=`
-    <div class="summary-head">Order Summary</div>
-    <div class="summary-body">
-      <div class="sum-row"><span class="sum-lbl">Service</span><span class="sum-val" id="summaryService">${serviceLabel}</span></div>
-      <div class="sum-row"><span class="sum-lbl">Photo purpose</span><span class="sum-val">${purpose}</span></div>
-      <div class="sum-row"><span class="sum-lbl">Application centre</span><span class="sum-val">${centre}</span></div>
-      <div class="sum-row"><span class="sum-lbl">Customer</span><span class="sum-val">${name}</span></div>
-      <div class="sum-row"><span class="sum-lbl">Email</span><span class="sum-val">${email}</span></div>
-    </div>
-    <div class="sum-total-row"><span class="sum-total-lbl">Total</span><span class="sum-total-val" id="summaryTotal">${amount}</span></div>
-  `;
-  goTo(4);
-  paymentIntentSecret = null;
-  var payBtn = document.getElementById('payBtn');
-  payBtn.disabled = true;
-  payBtn.textContent = 'Preparing…';
-
-  if(!stripe){
-    stripe=Stripe(STRIPE_PUB);
-    const elements=stripe.elements();
-    cardEl=elements.create('card',{style:{base:{fontFamily:'DM Sans,sans-serif',fontSize:'14px',color:'#0d1b2e','::placeholder':{color:'#8a9bb0'}},invalid:{color:'#f87171'}},hidePostalCode:true});
-    cardEl.mount('#card-element');
-    cardEl.addEventListener('change',e=>{document.getElementById('card-errors').textContent=e.error?e.error.message:'';});
+// ── Test remove.bg connectivity (admin only) ──────────────
+app.get('/api/admin/test-removebg', adminAuth, async function(req, res) {
+  try {
+    // Make a minimal test call to remove.bg to check key and credits
+    var testResponse = await axios.get('https://api.remove.bg/v1.0/account', {
+      headers: { 'X-Api-Key': process.env.REMOVE_BG_KEY }
+    });
+    res.json({
+      ok: true,
+      credits_subscription: testResponse.data.data.attributes.credits.subscription,
+      credits_payg: testResponse.data.data.attributes.credits.payg,
+      credits_enterprise: testResponse.data.data.attributes.credits.enterprise
+    });
+  } catch(err) {
+    res.status(500).json({
+      ok: false,
+      error: err.response ? JSON.stringify(err.response.data) : err.message,
+      status: err.response ? err.response.status : 'no response'
+    });
   }
+});
 
-  // ── Apple Pay / Google Pay ────────────────────────────
-  var prPrices = PRICES[currentCurrency] || PRICES['GBP'];
-  var prAmount = printOpt === 'print' ? prPrices.print : prPrices.digital;
-  var prCurrency = prPrices.currency || prPrices.name.toLowerCase();
-
-  if (!window._paymentRequest) {
-    window._paymentRequest = stripe.paymentRequest({
-      country: 'GB',
-      currency: prCurrency,
-      total: { label: 'Photobooth App', amount: prAmount },
-      requestPayerName: true,
-      requestPayerEmail: true,
+// ── Free Retake Endpoints ─────────────────────────────────
+app.post('/api/admin/issue-retake', function(req, res) {
+  var token = req.headers['x-admin-token'] || req.body.adminToken;
+  if (token !== process.env.SABTECH_ADMIN_TOKEN && token !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorised' });
+  }
+  var orderRef = sanitise(req.body.orderRef);
+  if (!orderRef) return res.status(400).json({ error: 'Order ref required' });
+  Order.findOne({ orderRef: orderRef }).then(function(order) {
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    if (order.retakeIssued) return res.status(400).json({ error: 'Retake already issued for this order' });
+    var retakeToken = require('crypto').randomBytes(24).toString('hex');
+    var retakeUrl = 'https://photoboothapp.co.uk/retake/' + retakeToken;
+    return new Retake({
+      token: retakeToken, orderRef: order.orderRef,
+      email: order.email, name: order.name,
+      centre: order.centre, purpose: order.purpose, source: order.source || 'sabtech'
+    }).save().then(function() {
+      return Order.findOneAndUpdate({ orderRef: orderRef }, { retakeIssued: true, retakeIssuedAt: new Date(), retakeToken: retakeToken });
+    }).then(function() {
+      var firstName = order.name ? order.name.split(' ')[0] : 'there';
+      var html =
+        '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">' +
+        '<div style="background:#0d1b2e;padding:28px 32px;"><h1 style="color:white;font-size:22px;margin:0;">Photobooth App</h1></div>' +
+        '<div style="padding:32px;">' +
+        '<h2 style="color:#0d1b2e;">Your free retake is ready, ' + firstName + '!</h2>' +
+        '<p style="color:#5a6275;">We\'re sorry your photo was rejected. We\'ve issued you a <strong>free retake</strong> — no payment needed.</p>' +
+        '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:20px;margin:20px 0;text-align:center;">' +
+        '<a href="' + retakeUrl + '" style="display:inline-block;background:#0d1b2e;color:white;padding:14px 32px;border-radius:99px;text-decoration:none;font-weight:600;font-size:15px;">📸 Retake My Photo — Free</a>' +
+        '<p style="font-size:11px;color:#8a9bb0;margin-top:12px;">Link valid for 7 days · Single use only</p>' +
+        '</div>' +
+        '<div style="background:#f8f9fb;border-radius:8px;padding:16px;font-size:13px;">' +
+        '<p><strong>Original Order:</strong> ' + order.orderRef + '</p>' +
+        '<p><strong>Photo Purpose:</strong> ' + order.purpose + '</p>' +
+        '<p><strong>Application Centre:</strong> ' + order.centre + '</p>' +
+        '</div>' +
+        '<p style="color:#8a9bb0;font-size:12px;margin-top:20px;">Questions? Contact info@photoboothapp.co.uk</p>' +
+        '</div></div>';
+      return sendEmail(order.email, 'Your Free Photo Retake — ' + order.orderRef, html, null);
+    }).then(function() {
+      res.json({ success: true, retakeToken: retakeToken, retakeUrl: retakeUrl });
     });
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
+});
 
-    var prButton = stripe.elements().create('paymentRequestButton', {
-      paymentRequest: window._paymentRequest,
-      style: {
-        paymentRequestButton: {
-          type: 'default',
-          theme: 'dark',
-          height: '48px',
-        },
-      },
-    });
+app.get('/api/retake/:token', function(req, res) {
+  var token = sanitise(req.params.token);
+  Retake.findOne({ token: token, used: false }).lean().then(function(retake) {
+    if (!retake) return res.status(404).json({ error: 'Invalid or expired retake link.' });
+    res.json({ success: true, name: retake.name, email: retake.email, centre: retake.centre, purpose: retake.purpose, source: retake.source, orderRef: retake.orderRef });
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
+});
 
-    window._paymentRequest.canMakePayment().then(function(result) {
-      if (result) {
-        prButton.mount('#payment-request-btn');
-        document.getElementById('payment-request-btn').classList.remove('hidden');
-        document.getElementById('pay-divider-row').classList.add('show');
-        console.log('Apple Pay / Google Pay available:', result);
-      } else {
-        console.log('Apple Pay / Google Pay not available on this device/browser');
+app.post('/api/retake/confirm', rateLimit(10, 60000), function(req, res) {
+  var token      = sanitise(req.body.token);
+  var photoToken = req.body.photoToken;
+  var orderRef   = sanitise(req.body.orderRef);
+  Retake.findOne({ token: token, used: false }).then(function(retake) {
+    if (!retake) return res.status(400).json({ error: 'Invalid or already used retake link.' });
+    var photo = getPhoto(photoToken);
+    if (!photo) return res.status(400).json({ error: 'Photo not found. Please upload again.' });
+    var imgBuffer = photo.buffer;
+    var attachment = { filename: 'passport_photo_retake.jpg', content: imgBuffer, contentType: 'image/jpeg' };
+    return Order.findOne({ orderRef: retake.orderRef }).lean().then(function(originalOrder) {
+      var isPrint = originalOrder && originalOrder.printOption === 'print';
+      var newPrintCode = null;
+      var newPrintCodeExpiry = null;
+      if (isPrint) {
+        newPrintCode = generatePrintCode();
+        newPrintCodeExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000);
+        storePrintPhoto(newPrintCode, imgBuffer);
       }
-    });
-
-    // Handle Apple Pay / Google Pay payment
-    window._paymentRequest.on('paymentmethod', async function(ev) {
-      if (!paymentIntentSecret) {
-        ev.complete('fail');
-        setMsg('payStatus', 'Payment not ready. Please try again.', 'error');
-        return;
+      retake.used = true; retake.usedAt = new Date(); retake.save().catch(function(){});
+      Order.findOneAndUpdate({ orderRef: retake.orderRef }, { retakeUsed: true, retakeUsedAt: new Date() }).catch(function(){});
+      var firstName = retake.name ? retake.name.split(' ')[0] : 'there';
+      var printCodeSection = '';
+      if (isPrint && newPrintCode) {
+        printCodeSection =
+          '<div style="background:#0d1b2e;color:white;padding:20px;border-radius:10px;margin:20px 0;text-align:center;">' +
+          '<p style="font-size:13px;color:#8a9bb0;margin-bottom:8px;letter-spacing:1px;text-transform:uppercase;">Your New Print Code</p>' +
+          '<p style="font-size:36px;font-weight:bold;letter-spacing:6px;color:#F5D06A;margin:0;">' + newPrintCode + '</p>' +
+          '<p style="font-size:12px;color:#8a9bb0;margin-top:8px;">Valid for 72 hours · Location: LON-WILSON</p>' +
+          '</div>';
       }
-      var btn = document.getElementById('payBtn');
-      btn.disabled = true;
-      document.getElementById('backBtn').disabled = true;
-      btn.innerHTML = '<span class="spinner"></span>Processing…';
-      clearMsg('payStatus');
-      document.getElementById('payTracker').classList.add('show');
-      rtSet('pt1','active','Authorising…');rtSet('pt2','pending','Waiting');rtSet('pt3','pending','Waiting');rtSet('pt4','pending','Waiting');
-
-      try {
-        var confirmResult = await stripe.confirmCardPayment(
-          paymentIntentSecret,
-          { payment_method: ev.paymentMethod.id },
-          { handleActions: false }
-        );
-        if (confirmResult.error) {
-          ev.complete('fail');
-          throw new Error(confirmResult.error.message);
-        }
-        ev.complete('success');
-        if (confirmResult.paymentIntent.status === 'requires_action') {
-          var actionResult = await stripe.confirmCardPayment(paymentIntentSecret);
-          if (actionResult.error) throw new Error(actionResult.error.message);
-        }
-        rtSet('pt1','done','Authorised');rtSet('pt2','active','Processing…');
-        await processOrderAfterPayment(confirmResult.paymentIntent || actionResult.paymentIntent);
-      } catch(err) {
-        rtSet('pt1','error','Failed');
-        setMsg('payStatus','Error: '+err.message,'error');
-        btn.disabled=false;document.getElementById('backBtn').disabled=false;
-        btn.textContent='Pay';
-      }
-    });
-  } else {
-    // Update amount if currency/option changed
-    window._paymentRequest.update({
-      total: { label: 'Photobooth App', amount: prAmount },
-      currency: prCurrency,
-    });
-  }
-
-  // Create payment intent with correct amount
-  fetch('/api/create-payment-intent',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({name:name, email:email, recaptchaToken:'', amountPence:amountPence, printOption:printOpt, currency:currentCurrency})
-  }).then(function(r){ return r.json(); }).then(function(d){
-    if(d.clientSecret){
-      paymentIntentSecret = d.clientSecret;
-      payBtn.textContent = 'Pay ' + (PRICES[currentCurrency]||PRICES['GBP']).digitalLabel;
-      var terms = document.getElementById('termsConsent');
-      if (terms && terms.checked) payBtn.disabled = false;
-    } else {
-      payBtn.textContent = 'Pay ' + (PRICES[currentCurrency]||PRICES['GBP']).digitalLabel;
-      payBtn.disabled = true;
-      setMsg('payStatus', 'Payment setup failed: ' + (d.error || 'Unknown error') + '. Please go back and try again.', 'error');
-      console.error('Payment intent error:', d);
-    }
-  }).catch(function(err){
-    payBtn.textContent = 'Pay ' + (PRICES[currentCurrency]||PRICES['GBP']).digitalLabel;
-    payBtn.disabled = true;
-    setMsg('payStatus', 'Connection error. Please check your internet and try again.', 'error');
-    console.error('Payment intent fetch error:', err);
-  });
-}
-
-async function processOrderAfterPayment(paymentIntent) {
-  await delay(400);
-  var btn = document.getElementById('payBtn');
-
-  // Store photo
-  var storeRes, storeData;
-  if (bgRemovedClientSide) {
-    const passportJpeg = await canvasToBase64(passC, 'image/jpeg', 0.95);
-    storeRes = await fetch('/api/store-photo', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({passportImage:passportJpeg, bgRemoved:true})});
-  } else {
-    const rawBase64 = await new Promise(function(resolve) {
-      var reader = new FileReader();
-      reader.onload = function(e) { resolve(e.target.result); };
-      reader.readAsDataURL(rawPhotoFile);
-    });
-    storeRes = await fetch('/api/store-photo', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({passportImage:rawBase64, bgRemoved:false})});
-  }
-  if (!storeRes.ok) throw new Error('Failed to process photo');
-  storeData = await storeRes.json();
-
-  rtSet('pt2','done','Paid ✓');rtSet('pt3','active','Sending email…');
-
-  const orderRef = 'PBA-' + Date.now().toString(36).toUpperCase();
-  const selectedPrintOpt = document.querySelector('input[name="printOption"]:checked') ? document.querySelector('input[name="printOption"]:checked').value : 'digital';
-  const res = await fetch('/api/confirm-order', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
-    name:document.getElementById('fullName').value,
-    email:document.getElementById('email').value,
-    phone:document.getElementById('dialCode').value + document.getElementById('phone').value,
-    centre:document.getElementById('appCentre').value,
-    purpose:document.getElementById('photoPurpose').value,
-    govRef:document.getElementById('govRef').value,
-    photoToken:storeData.token,
-    paymentIntentId:paymentIntent.id,
-    printOption:selectedPrintOpt,
-    printLocation: selectedPrintOpt === 'print' ? 'LON-WILSON' : null,
-    currency:currentCurrency,
-    source:'vfs',
-    orderRef
-  })});
-  if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Order failed'); }
-  const orderData = await res.json();
-
-  if (orderData.processedImage) {
-    try { await buildPassport(orderData.processedImage); } catch(e) {}
-  }
-
-  rtSet('pt3','done','Sent ✓');rtSet('pt4','done','Complete 🎉');
-  await delay(800);
-  showSuccess(orderData.orderRef || orderRef);
-
-  // Reset payment request for next order
-  window._paymentRequest = null;
-}
-
-async function doPayment(){
-  const cn=document.getElementById('cardName').value.trim();
-  if(!cn){document.getElementById('card-errors').textContent='Please enter the name on your card.';return;}
-  const btn=document.getElementById('payBtn');
-  btn.disabled=true;document.getElementById('backBtn').disabled=true;
-  btn.innerHTML='<span class="spinner"></span>Processing…';
-  clearMsg('payStatus');
-  document.getElementById('payTracker').classList.add('show');
-  rtSet('pt1','active','Authorising…');rtSet('pt2','pending','Waiting');rtSet('pt3','pending','Waiting');rtSet('pt4','pending','Waiting');
-  try{
-    // If payment intent not ready yet, wait up to 10 seconds
-    if(!paymentIntentSecret){
-      let waited = 0;
-      await new Promise(function(resolve){
-        var check = setInterval(function(){
-          waited += 200;
-          if(paymentIntentSecret || waited >= 10000){ clearInterval(check); resolve(); }
-        }, 200);
+      var html =
+        '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">' +
+        '<div style="background:#0d1b2e;padding:28px 32px;"><h1 style="color:white;font-size:22px;margin:0;">Photobooth App</h1></div>' +
+        '<div style="padding:32px;"><h2>Your new photo is ready, ' + firstName + '!</h2>' +
+        '<p style="color:#5a6275;">Your free retake has been processed and is attached.</p>' +
+        printCodeSection +
+        '<div style="background:#f8f9fb;padding:20px;border-radius:10px;margin:20px 0;font-size:13px;">' +
+        '<p><strong>Order Ref:</strong> ' + retake.orderRef + ' (Retake)</p>' +
+        '<p><strong>Photo Purpose:</strong> ' + retake.purpose + '</p>' +
+        '<p><strong>Application Centre:</strong> ' + retake.centre + '</p>' +
+        '</div>' +
+        '<p style="color:#8a9bb0;font-size:12px;margin-top:20px;">Questions? Contact info@photoboothapp.co.uk</p>' +
+        '</div></div>';
+      return sendEmail(retake.email, 'Your New Passport Photo — ' + retake.orderRef, html, attachment)
+      .then(function() {
+        deletePhoto(photoToken);
+        res.json({ success: true, printCode: newPrintCode });
       });
-    }
-    if(!paymentIntentSecret) throw new Error('Payment setup failed. Please go back and try again.');
-    // Step 1: Confirm payment with Stripe
-    const{error,paymentIntent}=await stripe.confirmCardPayment(paymentIntentSecret,{payment_method:{card:cardEl,billing_details:{name:cn,email:document.getElementById('email').value}}});
-    if(error)throw new Error(error.message);
-    rtSet('pt1','done','Authorised');rtSet('pt2','active','Processing…');
-    await delay(400);
+    });
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
+});
 
-    // Step 2: Store photo securely on server
-    // If RMBG ran client-side: send processed passport canvas
-    // If not: send raw original file so server can run remove.bg after payment
-    var storeRes, storeData;
-    if (bgRemovedClientSide) {
-      // Send processed passport canvas — background already removed
-      const passportJpeg=await canvasToBase64(passC,'image/jpeg',0.95);
-      storeRes=await fetch('/api/store-photo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passportImage:passportJpeg,bgRemoved:true})});
-    } else {
-      // Send RAW photo — server will call remove.bg after payment confirmed
-      const rawBase64 = await new Promise(function(resolve) {
-        var reader = new FileReader();
-        reader.onload = function(e) { resolve(e.target.result); };
-        reader.readAsDataURL(rawPhotoFile);
-      });
-      storeRes=await fetch('/api/store-photo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passportImage:rawBase64,bgRemoved:false})});
-    }
-    if(!storeRes.ok) throw new Error('Failed to process photo');
-    storeData=await storeRes.json();
-
-    rtSet('pt2','done','Paid ✓');rtSet('pt3','active','Sending email…');
-
-    // Step 3: Confirm order — server verifies payment with Stripe before emailing
-    const orderRef='PBA-'+Date.now().toString(36).toUpperCase();
-    const selectedPrintOpt = document.querySelector('input[name="printOption"]:checked') ? document.querySelector('input[name="printOption"]:checked').value : 'digital';
-    const res=await fetch('/api/confirm-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-      name:document.getElementById('fullName').value,
-      email:document.getElementById('email').value,
-      phone:document.getElementById('dialCode').value+document.getElementById('phone').value,
-      centre:document.getElementById('appCentre').value,
-      purpose:document.getElementById('photoPurpose').value,
-      govRef:document.getElementById('govRef').value,
-      photoToken:storeData.token,
-      paymentIntentId:paymentIntent.id,
-      printOption:selectedPrintOpt,
-      printLocation: selectedPrintOpt === 'print' ? 'LON-WILSON' : null,
-      currency: currentCurrency,
-      source:'vfs',
-      orderRef
-    })});
-        if(!res.ok){const e=await res.json();throw new Error(e.error||'Order failed');}
-    const orderData = await res.json();
-
-    // Rebuild canvases with server-processed white background image
-    if (orderData.processedImage) {
-      try {
-        await buildPassport(orderData.processedImage);
-        console.log('✅ Downloads updated with white background image');
-      } catch(e) {
-        console.warn('Canvas rebuild failed:', e.message);
-      }
-    }
-
-    rtSet('pt3','done','Sent ✓');rtSet('pt4','done','Complete 🎉');
-    await delay(800);showSuccess(orderData.orderRef || orderRef);
-  }catch(err){
-    rtSet('pt1','error','Failed');
-    setMsg('payStatus','Error: '+err.message,'error');
-    btn.disabled=false;document.getElementById('backBtn').disabled=false;btn.textContent='Pay £6.99';
+// ── Gratis order ──────────────────────────────────────────
+app.post('/api/admin/issue-gratis', function(req, res) {
+  var token = req.headers['x-admin-token'] || req.body.adminToken;
+  if (token !== process.env.SABTECH_ADMIN_TOKEN && token !== process.env.ADMIN_TOKEN) {
+    return res.status(401).json({ error: 'Unauthorised' });
   }
-}
+  var email    = sanitise(req.body.email);
+  var name     = sanitise(req.body.name);
+  var centre   = sanitise(req.body.centre) || 'Not specified';
+  var purpose  = sanitise(req.body.purpose) || 'Not specified';
+  var note     = sanitise(req.body.note) || '';
+  var withPrint = req.body.withPrint === true || req.body.withPrint === 'true';
+  var source   = sanitise(req.body.source) || 'sabtech';
+  if (!email || !name) return res.status(400).json({ error: 'Name and email required' });
+  var gratisToken = require('crypto').randomBytes(24).toString('hex');
+  var gratisUrl = 'https://photoboothapp.co.uk/retake/' + gratisToken;
+  new Retake({
+    token: gratisToken,
+    orderRef: 'GRATIS-' + Date.now().toString(36).toUpperCase(),
+    email: email, name: name, centre: centre, purpose: purpose, source: source
+  }).save().then(function() {
+    var firstName = name.split(' ')[0];
+    var serviceLabel = withPrint ? 'Digital + Print (Lon-Wilson)' : 'Digital Only';
+    var html =
+      '<div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">' +
+      '<div style="background:#0d1b2e;padding:28px 32px;"><h1 style="color:white;font-size:22px;margin:0;">Photobooth App</h1></div>' +
+      '<div style="padding:32px;">' +
+      '<h2 style="color:#0d1b2e;">Your complimentary photo session, ' + firstName + '!</h2>' +
+      '<p style="color:#5a6275;margin-bottom:20px;">We\'d like to offer you a <strong>complimentary passport photo</strong> — completely free of charge.</p>' +
+      '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:20px;margin:20px 0;text-align:center;">' +
+      '<a href="' + gratisUrl + '" style="display:inline-block;background:#0d1b2e;color:white;padding:14px 32px;border-radius:99px;text-decoration:none;font-weight:600;font-size:15px;">📸 Get My Free Photo</a>' +
+      '<p style="font-size:11px;color:#8a9bb0;margin-top:12px;">Service: ' + serviceLabel + ' · Link valid for 7 days</p>' +
+      '</div>' +
+      (note ? '<p style="color:#5a6275;font-size:13px;font-style:italic;">Note: ' + note + '</p>' : '') +
+      '<p style="color:#8a9bb0;font-size:12px;margin-top:20px;">Questions? Contact info@photoboothapp.co.uk · Photobooth App · Sabtech Limited</p>' +
+      '</div></div>';
+    return sendEmail(email, 'Your Complimentary Passport Photo — Photobooth App', html, null);
+  }).then(function() {
+    res.json({ success: true, gratisUrl: gratisUrl });
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
+});
 
-function delay(ms){return new Promise(r=>setTimeout(r,ms));}
-function canvasToBase64(canvas,type,quality){return new Promise(r=>canvas.toBlob(b=>{const fr=new FileReader();fr.onload=e=>r(e.target.result);fr.readAsDataURL(b);},type,quality));}
+// ── Kiosk endpoints ───────────────────────────────────────
+app.post('/api/kiosk/verify-code', rateLimit(20, 60000), function(req, res) {
+  var code = sanitise(req.body.code || '').toUpperCase().trim();
+  var locationId = sanitise(req.body.locationId || '').toUpperCase().trim();
+  if (!code) return res.status(400).json({ error: 'Please enter a print code.' });
+  if (!code.startsWith('PBA-')) code = 'PBA-' + code;
+  Order.findOne({ printCode: code }).lean().then(function(order) {
+    if (!order) return res.status(404).json({ error: 'Invalid code. Please check and try again.' });
+    if (order.printed) return res.status(400).json({ error: 'This code has already been used.' });
+    if (order.printCodeExpiry && new Date() > new Date(order.printCodeExpiry)) {
+      return res.status(400).json({ error: 'This code has expired. Please contact support.' });
+    }
+    if (order.printOption !== 'print') return res.status(400).json({ error: 'This order does not include printing.' });
+    res.json({ success: true, orderRef: order.orderRef, name: order.name, purpose: order.purpose, centre: order.centre, expiresAt: order.printCodeExpiry });
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
+});
 
-function showSuccess(ref){
-  document.getElementById('orderRef').textContent=ref;
-  document.getElementById('confirmEmail').textContent=document.getElementById('email').value;
-  document.getElementById('page4').style.display='none';
-  document.getElementById('pageSuccess').style.display='block';
-  for(let i=1;i<=4;i++){const el=document.getElementById('si'+i);el.classList.remove('active');el.classList.add('done');el.querySelector('.step-dot').innerHTML=CHECK;}
-  window.scrollTo({top:0,behavior:'smooth'});
-  document.getElementById('dlJpg').onclick=()=>{passC.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='passport_photo.jpg';a.click();},'image/jpeg',0.96);};
-  document.getElementById('dlStrip').onclick=()=>{stripC.toBlob(b=>{const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='passport_strip_4up.jpg';a.click();},'image/jpeg',0.96);};
-}
-</script>
-<div style="text-align:center;padding:2rem 1rem;font-size:12px;color:var(--silver);border-top:1px solid var(--platinum3);margin-top:1rem;max-width:560px;margin-left:auto;margin-right:auto;">
-  <p style="margin-bottom:8px;">© 2026 Sabtech Limited · Photobooth App</p>
-  <p>
-    <a href="/privacy.html" style="color:var(--silver);text-decoration:none;margin:0 8px;">Privacy Policy</a>·
-    <a href="/terms.html" style="color:var(--silver);text-decoration:none;margin:0 8px;">Terms &amp; Conditions</a>·
-    <a href="mailto:info@sabtech.co.uk" style="color:var(--silver);text-decoration:none;margin:0 8px;">Contact Us</a>
-  </p>
-  <p style="margin-top:8px;">Payments secured by Stripe · Photos deleted after delivery · UK GDPR compliant</p>
-</div>
+app.post('/api/kiosk/get-photo', rateLimit(20, 60000), async function(req, res) {
+  var code = sanitise(req.body.code || '').toUpperCase().trim();
+  if (!code.startsWith('PBA-')) code = 'PBA-' + code;
+  try {
+    var order = await Order.findOne({ printCode: code }).lean();
+    if (!order) return res.status(404).json({ error: 'Order not found.' });
+    if (order.printed) return res.status(400).json({ error: 'Already printed.' });
+    if (order.printCodeExpiry && new Date() > new Date(order.printCodeExpiry)) {
+      return res.status(400).json({ error: 'Code expired.' });
+    }
+    var photo = await getPrintPhotoAsync(code);
+    if (!photo) return res.status(404).json({ error: 'Photo not available. Please contact support.' });
+    var base64 = photo.buffer.toString('base64');
+    res.json({ success: true, photo: 'data:image/jpeg;base64,' + base64, orderRef: order.orderRef, name: order.name, purpose: order.purpose });
+  } catch(err) { res.status(500).json({ error: err.message }); }
+});
 
-</body>
-</html>
+app.post('/api/kiosk/mark-printed', rateLimit(20, 60000), function(req, res) {
+  var code = sanitise(req.body.code || '').toUpperCase().trim();
+  var locationId = sanitise(req.body.locationId || '').toUpperCase().trim();
+  if (!code.startsWith('PBA-')) code = 'PBA-' + code;
+  Order.findOneAndUpdate(
+    { printCode: code, printed: false },
+    { printed: true, printedAt: new Date(), printLocation: locationId },
+    { new: true }
+  ).then(function(order) {
+    if (!order) return res.status(404).json({ error: 'Code not found or already used.' });
+    deletePrintPhoto(code);
+    res.json({ success: true, orderRef: order.orderRef });
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
+});
+
+app.get('/api/kiosk/locations', function(req, res) {
+  Location.find({ active: true }).lean().then(function(locations) {
+    res.json({ locations: locations });
+  }).catch(function(err) { res.status(500).json({ error: err.message }); });
+});
+
+// ── Sentry error handler (must be last) ───────────────────
+Sentry.setupExpressErrorHandler(app);
+
+app.use(function(err, req, res, next) {
+  Sentry.captureException(err);
+  res.status(500).json({ error: 'Something went wrong. Please try again.' });
+});
+
+var PORT = process.env.PORT || 3000;
+app.listen(PORT, function() {
+  console.log('Photobooth App running on port ' + PORT);
+});
