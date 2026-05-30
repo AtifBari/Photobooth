@@ -17,6 +17,7 @@ var FormData   = require('form-data');
 var cors       = require('cors');
 var crypto     = require('crypto');
 var mongoose   = require('mongoose');
+var sharp      = require('sharp');
 
 var app    = express();
 var stripe = Stripe(process.env.STRIPE_SECRET_KEY);
@@ -338,6 +339,35 @@ function removeBackgroundServer(imgBuffer, mimeType) {
   });
 }
 
+// ── Crop and resize to exact passport dimensions ─────────────────────────────
+async function cropToPassportSize(imgBuffer, purpose) {
+  var DPI = 300;
+  var w_mm = 35, h_mm = 45;
+  if (purpose) {
+    var p = purpose.toLowerCase();
+    if (p.includes('20') && p.includes('25')) { w_mm=20; h_mm=25; }
+    else if (p.includes('25') && p.includes('30')) { w_mm=25; h_mm=30; }
+    else if (p.includes('33') && p.includes('48')) { w_mm=33; h_mm=48; }
+    else if (p.includes('40') && p.includes('60')) { w_mm=40; h_mm=60; }
+    else if (p.includes('43') && p.includes('55')) { w_mm=43; h_mm=55; }
+    else if (p.includes('50') && p.includes('70')) { w_mm=50; h_mm=70; }
+    else if (p.includes('51') || p.includes('2x2')) { w_mm=51; h_mm=51; }
+  }
+  var outW = Math.round(w_mm / 25.4 * DPI);
+  var outH = Math.round(h_mm / 25.4 * DPI);
+  try {
+    var result = await sharp(imgBuffer)
+      .resize(outW, outH, { fit: 'cover', position: 'top', withoutEnlargement: false })
+      .jpeg({ quality: 95 })
+      .toBuffer();
+    console.log('[INFO] Cropped to ' + outW + 'x' + outH + 'px (' + w_mm + 'x' + h_mm + 'mm)');
+    return result;
+  } catch(e) {
+    console.error('[ERROR] cropToPassportSize failed:', e.message);
+    return imgBuffer;
+  }
+}
+
 // ── Resend email ──────────────────────────────────────────
 function sendEmail(to, subject, html, attachments) {
   var payload = { from: 'Photobooth App <info@photoboothapp.co.uk>', to: [to], subject: subject, html: html };
@@ -503,14 +533,19 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
       imgBuffer = removedBuffer;
       console.log('[INFO] remove.bg success for: ' + orderRef + ' resultSize=' + imgBuffer.length + 'bytes');
     } catch(bgErr) {
-      // Log full error — very important for debugging
       Sentry.captureException(bgErr);
       console.error('[ERROR] remove.bg FAILED for ' + orderRef + ': ' + bgErr.message);
       if (bgErr.response) {
         console.error('[ERROR] remove.bg response status: ' + bgErr.response.status);
         console.error('[ERROR] remove.bg response data: ' + JSON.stringify(bgErr.response.data || ''));
       }
-      // imgBuffer stays as original — order completes but without white background
+    }
+
+    // ── Crop to exact passport dimensions after remove.bg ──
+    try {
+      imgBuffer = await cropToPassportSize(imgBuffer, purpose);
+    } catch(cropErr) {
+      console.error('[ERROR] Crop failed:', cropErr.message);
     }
 
     var firstName = name.split(' ')[0];
