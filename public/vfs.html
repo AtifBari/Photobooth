@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1958,10 +1959,9 @@ function s3(){
   }
 
   // ── Apple Pay / Google Pay ────────────────────────────
-  // Set up payment request — amount will update once PI is created
-  var p = PRICES[currentCurrency] || PRICES['GBP'];
-  var prAmount = printOpt === 'print' ? p.print : p.digital;
-  var prCurrency = p.currency || p.name.toLowerCase();
+  var prPrices = PRICES[currentCurrency] || PRICES['GBP'];
+  var prAmount = printOpt === 'print' ? prPrices.print : prPrices.digital;
+  var prCurrency = prPrices.currency || prPrices.name.toLowerCase();
 
   if (!window._paymentRequest) {
     window._paymentRequest = stripe.paymentRequest({
