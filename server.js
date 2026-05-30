@@ -17,7 +17,6 @@ var FormData   = require('form-data');
 var cors       = require('cors');
 var crypto     = require('crypto');
 var mongoose   = require('mongoose');
-var sharp      = require('sharp');
 
 var app    = express();
 var stripe = Stripe(process.env.STRIPE_SECRET_KEY);
@@ -317,19 +316,47 @@ function deletePrintPhoto(printCode) {
 
 // ── SERVER-SIDE remove.bg ─────────────────────────────────
 // Called only after payment is confirmed — prevents free API usage by non-paying users
-function removeBackgroundServer(imgBuffer, mimeType) {
+function getPassportDimensions(purpose) {
+  var DPI = 300;
+  var w_mm = 35, h_mm = 45;
+  if (purpose) {
+    var p = purpose.toLowerCase();
+    if (p.includes('20') && p.includes('25'))      { w_mm=20; h_mm=25; }
+    else if (p.includes('25') && p.includes('30')) { w_mm=25; h_mm=30; }
+    else if (p.includes('33') && p.includes('48')) { w_mm=33; h_mm=48; }
+    else if (p.includes('40') && p.includes('60')) { w_mm=40; h_mm=60; }
+    else if (p.includes('43') && p.includes('55')) { w_mm=43; h_mm=55; }
+    else if (p.includes('50') && p.includes('70')) { w_mm=50; h_mm=70; }
+    else if (p.includes('51') || p.includes('2x2')){ w_mm=51; h_mm=51; }
+  }
+  return {
+    w_px: Math.round(w_mm / 25.4 * DPI),
+    h_px: Math.round(h_mm / 25.4 * DPI),
+    w_mm: w_mm,
+    h_mm: h_mm
+  };
+}
+
+function removeBackgroundServer(imgBuffer, mimeType, purpose) {
   return new Promise(function(resolve, reject) {
+    var dims = getPassportDimensions(purpose);
     var fd = new FormData();
     fd.append('image_file', imgBuffer, { filename: 'photo.jpg', contentType: mimeType || 'image/jpeg' });
     fd.append('size', 'auto');
-    fd.append('bg_color', 'ffffff');   // white background applied by remove.bg
-    fd.append('format', 'jpg');        // return JPEG not transparent PNG
-    fd.append('crop', 'false');        // keep original framing
+    fd.append('bg_color', 'ffffff');          // white background
+    fd.append('format', 'jpg');               // return JPEG
+    fd.append('crop', 'true');                // let remove.bg crop to subject
+    fd.append('crop_margin', '10%');          // small margin around subject
+    fd.append('scale', '80%');               // face occupies ~80% of frame
+    fd.append('position', 'top-half');        // keep face at top of frame
+    fd.append('output_width', String(dims.w_px));   // exact passport width in px
+    fd.append('output_height', String(dims.h_px));  // exact passport height in px
     axios.post('https://api.remove.bg/v1.0/removebg', fd, {
       headers: Object.assign({ 'X-Api-Key': process.env.REMOVE_BG_KEY }, fd.getHeaders()),
       responseType: 'arraybuffer',
       timeout: 30000
     }).then(function(response) {
+      console.log('[INFO] remove.bg output: ' + dims.w_px + 'x' + dims.h_px + 'px (' + dims.w_mm + 'x' + dims.h_mm + 'mm)');
       resolve(Buffer.from(response.data));
     }).catch(function(err) {
       var msg = err.message;
@@ -337,35 +364,6 @@ function removeBackgroundServer(imgBuffer, mimeType) {
       reject(new Error('Background removal failed: ' + msg));
     });
   });
-}
-
-// ── Crop and resize to exact passport dimensions ─────────────────────────────
-async function cropToPassportSize(imgBuffer, purpose) {
-  var DPI = 300;
-  var w_mm = 35, h_mm = 45;
-  if (purpose) {
-    var p = purpose.toLowerCase();
-    if (p.includes('20') && p.includes('25')) { w_mm=20; h_mm=25; }
-    else if (p.includes('25') && p.includes('30')) { w_mm=25; h_mm=30; }
-    else if (p.includes('33') && p.includes('48')) { w_mm=33; h_mm=48; }
-    else if (p.includes('40') && p.includes('60')) { w_mm=40; h_mm=60; }
-    else if (p.includes('43') && p.includes('55')) { w_mm=43; h_mm=55; }
-    else if (p.includes('50') && p.includes('70')) { w_mm=50; h_mm=70; }
-    else if (p.includes('51') || p.includes('2x2')) { w_mm=51; h_mm=51; }
-  }
-  var outW = Math.round(w_mm / 25.4 * DPI);
-  var outH = Math.round(h_mm / 25.4 * DPI);
-  try {
-    var result = await sharp(imgBuffer)
-      .resize(outW, outH, { fit: 'cover', position: 'top', withoutEnlargement: false })
-      .jpeg({ quality: 95 })
-      .toBuffer();
-    console.log('[INFO] Cropped to ' + outW + 'x' + outH + 'px (' + w_mm + 'x' + h_mm + 'mm)');
-    return result;
-  } catch(e) {
-    console.error('[ERROR] cropToPassportSize failed:', e.message);
-    return imgBuffer;
-  }
 }
 
 // ── Resend email ──────────────────────────────────────────
@@ -526,7 +524,7 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
     // Guarantees white background regardless of what client sent
     console.log('[INFO] Running server-side remove.bg for order: ' + orderRef + ' imgSize=' + imgBuffer.length + 'bytes');
     try {
-      var removedBuffer = await removeBackgroundServer(imgBuffer, 'image/jpeg');
+      var removedBuffer = await removeBackgroundServer(imgBuffer, 'image/jpeg', purpose);
       if (!removedBuffer || removedBuffer.length < 1000) {
         throw new Error('remove.bg returned empty or invalid response (' + (removedBuffer ? removedBuffer.length : 0) + ' bytes)');
       }
@@ -541,12 +539,6 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
       }
     }
 
-    // ── Crop to exact passport dimensions after remove.bg ──
-    try {
-      imgBuffer = await cropToPassportSize(imgBuffer, purpose);
-    } catch(cropErr) {
-      console.error('[ERROR] Crop failed:', cropErr.message);
-    }
 
     var firstName = name.split(' ')[0];
     var cleanPurpose = purpose.replace(/\s*[—–-]\s*[\d×xX\/\s\(\)inchmm\.]+$/i, '').trim();
