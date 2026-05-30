@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -187,6 +186,12 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--ink);min-he
 .sum-total-val{font-size:22px;color:var(--ink);font-weight:800;letter-spacing:-0.5px;}
 
 /* ── Stripe ───────────────────────────────────────────────── */
+#payment-request-btn{margin-bottom:0;}
+#payment-request-btn.hidden{display:none;}
+.pay-divider{display:flex;align-items:center;gap:12px;margin:14px 0;color:var(--muted);font-size:12px;font-weight:500;}
+.pay-divider::before,.pay-divider::after{content:'';flex:1;height:1px;background:var(--border);}
+#pay-divider-row{display:none;}
+#pay-divider-row.show{display:flex;}
 #card-element{padding:13px 16px;border:1.5px solid var(--border);border-radius:var(--r-sm);background:var(--white);transition:border-color 0.2s;}
 #card-element.StripeElement--focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(22,163,74,0.1);}
 #card-errors{font-size:12px;color:var(--red);margin-top:6px;min-height:18px;font-weight:500;}
@@ -538,6 +543,11 @@ body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--ink);min-he
     </div>
     <div class="card-body">
       <div class="summary-box" id="orderSummary"></div>
+
+      <!-- Apple Pay / Google Pay button (shown on supported devices) -->
+      <div id="payment-request-btn" class="hidden"></div>
+      <div id="pay-divider-row" class="pay-divider">Or pay by card</div>
+
       <div class="field"><label>Card Details <span class="req">*</span></label><div id="card-element"></div><div id="card-errors"></div></div>
       <div class="field"><label>Name on Card <span class="req">*</span></label><input type="text" id="cardName" placeholder="As it appears on your card"/></div>
       <div class="secure-row"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Secured by Stripe · card details never stored · charged in GBP (£)</div>
@@ -1961,6 +1971,90 @@ function s3(){
     cardEl.addEventListener('change',e=>{document.getElementById('card-errors').textContent=e.error?e.error.message:'';});
   }
 
+  // ── Apple Pay / Google Pay ────────────────────────────
+  // Set up payment request — amount will update once PI is created
+  var p = PRICES[currentCurrency] || PRICES['GBP'];
+  var prAmount = printOpt === 'print' ? p.print : p.digital;
+  var prCurrency = p.currency || p.name.toLowerCase();
+
+  if (!window._paymentRequest) {
+    window._paymentRequest = stripe.paymentRequest({
+      country: 'GB',
+      currency: prCurrency,
+      total: { label: 'Photobooth App', amount: prAmount },
+      requestPayerName: true,
+      requestPayerEmail: true,
+    });
+
+    var prButton = stripe.elements().create('paymentRequestButton', {
+      paymentRequest: window._paymentRequest,
+      style: {
+        paymentRequestButton: {
+          type: 'default',
+          theme: 'dark',
+          height: '48px',
+        },
+      },
+    });
+
+    window._paymentRequest.canMakePayment().then(function(result) {
+      if (result) {
+        prButton.mount('#payment-request-btn');
+        document.getElementById('payment-request-btn').classList.remove('hidden');
+        document.getElementById('pay-divider-row').classList.add('show');
+        console.log('Apple Pay / Google Pay available:', result);
+      } else {
+        console.log('Apple Pay / Google Pay not available on this device/browser');
+      }
+    });
+
+    // Handle Apple Pay / Google Pay payment
+    window._paymentRequest.on('paymentmethod', async function(ev) {
+      if (!paymentIntentSecret) {
+        ev.complete('fail');
+        setMsg('payStatus', 'Payment not ready. Please try again.', 'error');
+        return;
+      }
+      var btn = document.getElementById('payBtn');
+      btn.disabled = true;
+      document.getElementById('backBtn').disabled = true;
+      btn.innerHTML = '<span class="spinner"></span>Processing…';
+      clearMsg('payStatus');
+      document.getElementById('payTracker').classList.add('show');
+      rtSet('pt1','active','Authorising…');rtSet('pt2','pending','Waiting');rtSet('pt3','pending','Waiting');rtSet('pt4','pending','Waiting');
+
+      try {
+        var confirmResult = await stripe.confirmCardPayment(
+          paymentIntentSecret,
+          { payment_method: ev.paymentMethod.id },
+          { handleActions: false }
+        );
+        if (confirmResult.error) {
+          ev.complete('fail');
+          throw new Error(confirmResult.error.message);
+        }
+        ev.complete('success');
+        if (confirmResult.paymentIntent.status === 'requires_action') {
+          var actionResult = await stripe.confirmCardPayment(paymentIntentSecret);
+          if (actionResult.error) throw new Error(actionResult.error.message);
+        }
+        rtSet('pt1','done','Authorised');rtSet('pt2','active','Processing…');
+        await processOrderAfterPayment(confirmResult.paymentIntent || actionResult.paymentIntent);
+      } catch(err) {
+        rtSet('pt1','error','Failed');
+        setMsg('payStatus','Error: '+err.message,'error');
+        btn.disabled=false;document.getElementById('backBtn').disabled=false;
+        btn.textContent='Pay';
+      }
+    });
+  } else {
+    // Update amount if currency/option changed
+    window._paymentRequest.update({
+      total: { label: 'Photobooth App', amount: prAmount },
+      currency: prCurrency,
+    });
+  }
+
   // Create payment intent with correct amount
   fetch('/api/create-payment-intent',{
     method:'POST',
@@ -1984,6 +2078,60 @@ function s3(){
     setMsg('payStatus', 'Connection error. Please check your internet and try again.', 'error');
     console.error('Payment intent fetch error:', err);
   });
+}
+
+async function processOrderAfterPayment(paymentIntent) {
+  await delay(400);
+  var btn = document.getElementById('payBtn');
+
+  // Store photo
+  var storeRes, storeData;
+  if (bgRemovedClientSide) {
+    const passportJpeg = await canvasToBase64(passC, 'image/jpeg', 0.95);
+    storeRes = await fetch('/api/store-photo', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({passportImage:passportJpeg, bgRemoved:true})});
+  } else {
+    const rawBase64 = await new Promise(function(resolve) {
+      var reader = new FileReader();
+      reader.onload = function(e) { resolve(e.target.result); };
+      reader.readAsDataURL(rawPhotoFile);
+    });
+    storeRes = await fetch('/api/store-photo', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({passportImage:rawBase64, bgRemoved:false})});
+  }
+  if (!storeRes.ok) throw new Error('Failed to process photo');
+  storeData = await storeRes.json();
+
+  rtSet('pt2','done','Paid ✓');rtSet('pt3','active','Sending email…');
+
+  const orderRef = 'PBA-' + Date.now().toString(36).toUpperCase();
+  const selectedPrintOpt = document.querySelector('input[name="printOption"]:checked') ? document.querySelector('input[name="printOption"]:checked').value : 'digital';
+  const res = await fetch('/api/confirm-order', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+    name:document.getElementById('fullName').value,
+    email:document.getElementById('email').value,
+    phone:document.getElementById('dialCode').value + document.getElementById('phone').value,
+    centre:document.getElementById('appCentre').value,
+    purpose:document.getElementById('photoPurpose').value,
+    govRef:document.getElementById('govRef').value,
+    photoToken:storeData.token,
+    paymentIntentId:paymentIntent.id,
+    printOption:selectedPrintOpt,
+    printLocation: selectedPrintOpt === 'print' ? 'LON-WILSON' : null,
+    currency:currentCurrency,
+    source:'sabtech',
+    orderRef
+  })});
+  if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Order failed'); }
+  const orderData = await res.json();
+
+  if (orderData.processedImage) {
+    try { await buildPassport(orderData.processedImage); } catch(e) {}
+  }
+
+  rtSet('pt3','done','Sent ✓');rtSet('pt4','done','Complete 🎉');
+  await delay(800);
+  showSuccess(orderData.orderRef || orderRef);
+
+  // Reset payment request for next order
+  window._paymentRequest = null;
 }
 
 async function doPayment(){
