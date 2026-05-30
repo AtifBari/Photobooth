@@ -1281,9 +1281,22 @@ function captureWebcam() {
   canvas.height = sh;
   canvas.getContext('2d').drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
 
+  // Save FULL frame as rawPhotoFile for server-side remove.bg (high res)
+  var fullCanvas = document.createElement('canvas');
+  fullCanvas.width = vw;
+  fullCanvas.height = vh;
+  fullCanvas.getContext('2d').drawImage(video, 0, 0, vw, vh);
+  fullCanvas.toBlob(function(fullBlob) {
+    rawPhotoFile = new File([fullBlob], 'webcam_full.jpg', { type: 'image/jpeg' });
+    console.log('Full frame saved for server: ' + vw + 'x' + vh + 'px');
+  }, 'image/jpeg', 0.97);
+
+  // Pass cropped version to crop editor for preview
   canvas.toBlob(function(blob) {
     closeWebcam();
-    doPhoto(new File([blob], 'webcam.jpg', { type: 'image/jpeg' }));
+    var croppedFile = new File([blob], 'webcam.jpg', { type: 'image/jpeg' });
+    // rawPhotoFile already set above to full frame
+    initCropEditor(croppedFile);
   }, 'image/jpeg', 0.97);
 }
 
@@ -1306,8 +1319,8 @@ document.getElementById('photoFileCamera').addEventListener('click', function(e)
     setMsg('photoStatus', 'Please tick the consent box above before uploading your photo.', 'error');
   }
 });
-document.getElementById('photoFile').addEventListener('change',e=>{if(e.target.files[0])doPhoto(e.target.files[0]);});
-document.getElementById('photoFileCamera').addEventListener('change',e=>{if(e.target.files[0])doPhoto(e.target.files[0]);});
+document.getElementById('photoFile').addEventListener('change',e=>{if(e.target.files[0]){rawPhotoFile=e.target.files[0];doPhoto(e.target.files[0]);}});
+document.getElementById('photoFileCamera').addEventListener('change',e=>{if(e.target.files[0]){rawPhotoFile=e.target.files[0];doPhoto(e.target.files[0]);}});
 document.getElementById('uploadArea').addEventListener('dragover',e=>{e.preventDefault();document.getElementById('uploadArea').classList.add('drag');});
 document.getElementById('uploadArea').addEventListener('dragleave',()=>document.getElementById('uploadArea').classList.remove('drag'));
 document.getElementById('uploadArea').addEventListener('drop',e=>{e.preventDefault();document.getElementById('uploadArea').classList.remove('drag');if(e.dataTransfer.files[0])doPhoto(e.dataTransfer.files[0]);});
