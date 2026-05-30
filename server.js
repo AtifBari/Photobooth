@@ -232,6 +232,21 @@ app.use(express.static(process.env.STATIC_DIR || 'public'));
 var path = require('path');
 var staticDir = process.env.STATIC_DIR ? process.env.STATIC_DIR : path.join(__dirname, 'public');
 
+// ── Apple Pay domain verification ────────────────────────
+// Stripe serves this automatically — but we need the route in case
+// of direct requests. The actual file content comes from Stripe dashboard.
+app.get('/.well-known/apple-developer-merchantid-domain-association', function(req, res) {
+  var filePath = path.join(staticDir, '.well-known', 'apple-developer-merchantid-domain-association');
+  res.setHeader('Content-Type', 'text/plain');
+  res.sendFile(filePath, function(err) {
+    if (err) {
+      // File not yet added — return empty response (Stripe will handle)
+      console.log('[INFO] Apple Pay domain file not found — add from Stripe dashboard');
+      res.status(200).send('');
+    }
+  });
+});
+
 app.get('/', function(req, res) { res.sendFile(path.join(staticDir, 'index.html')); });
 app.get('/order', function(req, res) { res.sendFile(path.join(staticDir, 'order.html')); });
 app.get('/vfs', function(req, res) { res.sendFile(path.join(staticDir, 'vfs.html')); });
