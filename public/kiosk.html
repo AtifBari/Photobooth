@@ -362,40 +362,80 @@ async function doPrint() {
     var qzOk = await connectQZ();
     if (qzOk && PRINTER_NAME) {
       try {
+        // Build strip canvas from passport photo
+        // Use the same dimensions as the passport photo from the order
+        var img = new Image();
+        img.src = photo;
+        await new Promise(function(resolve, reject) {
+          img.onload = resolve; img.onerror = reject;
+        });
+
+        var photoW = img.naturalWidth;
+        var photoH = img.naturalHeight;
+        var photoW_mm = photoW / 300 * 25.4;
+        var photoH_mm = photoH / 300 * 25.4;
+
+        // Choose grid size based on photo dimensions
+        var cols, rows;
+        if (photoW_mm <= 22 && photoH_mm <= 27) { cols = 4; rows = 4; }
+        else if (photoW_mm <= 27 && photoH_mm <= 32) { cols = 3; rows = 3; }
+        else { cols = 2; rows = 2; }
+
+        var margin_px = Math.round(4 / 25.4 * 300);
+        var gap_px    = Math.round(3 / 25.4 * 300);
+
+        var stripCanvas = document.createElement('canvas');
+        var stripW = cols * photoW + (cols-1) * gap_px + margin_px * 2;
+        var stripH = rows * photoH + (rows-1) * gap_px + margin_px * 2;
+        stripCanvas.width  = stripW;
+        stripCanvas.height = stripH;
+        var sctx = stripCanvas.getContext('2d');
+        sctx.fillStyle = '#ffffff';
+        sctx.fillRect(0, 0, stripW, stripH);
+        for (var r = 0; r < rows; r++) {
+          for (var col2 = 0; col2 < cols; col2++) {
+            sctx.drawImage(img,
+              margin_px + col2 * (photoW + gap_px),
+              margin_px + r    * (photoH + gap_px),
+              photoW, photoH);
+          }
+        }
+
+        // Convert to mm for config
+        var DPI = 300;
+        var widthIn  = stripW / DPI;
+        var heightIn = stripH / DPI;
+
+        // Portrait if taller than wide, landscape if wider
+        var isLandscape = stripW > stripH;
+
         var config = qz.configs.create(PRINTER_NAME, {
-          size: { width: 6, height: 4 },
+          size: {
+            width:  isLandscape ? widthIn  : widthIn,
+            height: isLandscape ? heightIn : heightIn
+          },
           units: 'in',
-          orientation: 'landscape',
+          orientation: isLandscape ? 'landscape' : 'portrait',
           margins: { top: 0, right: 0, bottom: 0, left: 0 },
           colorType: 'color',
           copies: 1,
-          scaleContent: true,
-          rasterize: true
+          scaleContent: false,
+          rasterize: true,
+          density: 300
         });
 
-        var printHtml = '<html><head><style>' +
-          '* { margin: 0; padding: 0; box-sizing: border-box; }' +
-          '@page { size: 6in 4in; margin: 0; }' +
-          'body { width: 6in; height: 4in; display: grid;' +
-          '       grid-template-columns: 1fr 1fr;' +
-          '       grid-template-rows: 1fr 1fr;' +
-          '       background: white; }' +
-          '.p { display: flex; align-items: center; justify-content: center;' +
-          '     padding: 6px; border: 0.5px dashed #ddd; }' +
-          '.p img { max-width: 100%; max-height: 100%; object-fit: contain; }' +
-          '</style></head><body>' +
-          '<div class="p"><img src="' + photo + '"/></div>' +
-          '<div class="p"><img src="' + photo + '"/></div>' +
-          '<div class="p"><img src="' + photo + '"/></div>' +
-          '<div class="p"><img src="' + photo + '"/></div>' +
-          '</body></html>';
+        // Convert strip canvas to base64 JPEG
+        var base64 = stripCanvas.toDataURL('image/jpeg', 0.97).split(',')[1];
+
+        console.log('Sending to printer: ' + stripW + 'x' + stripH + 'px (' +
+          (stripW/DPI*25.4).toFixed(1) + 'x' + (stripH/DPI*25.4).toFixed(1) + 'mm) ' +
+          (isLandscape ? 'landscape' : 'portrait'));
 
         var printData = [{
           type: 'pixel',
-          format: 'html',
-          flavor: 'plain',
-          data: printHtml,
-          options: { pageWidth: 6, pageHeight: 4 }
+          format: 'image',
+          flavor: 'base64',
+          data: base64
         }];
 
         await qz.print(config, printData);
