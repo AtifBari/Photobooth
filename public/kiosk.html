@@ -321,58 +321,61 @@ async function doPrint() {
 
         var photoW = img.naturalWidth;
         var photoH = img.naturalHeight;
-        var photoW_mm = (photoW / 300 * 25.4).toFixed(1);
-        var photoH_mm = (photoH / 300 * 25.4).toFixed(1);
         var isSquare = Math.abs(photoW - photoH) < 20;
 
-        // Sheet: portrait 4x6 for most, landscape 6x4 for square photos
-        var sheetWmm = isSquare ? 152.4 : 101.6;
-        var sheetHmm = isSquare ? 101.6 : 152.4;
+        // DNP QW410 media: FIXED 4x6 inch
+        // Portrait photos -> 4x6 portrait (1200x1800px)
+        // Square photos   -> 6x4 landscape (1800x1200px)
+        var DPI = 300;
+        var sheetW = isSquare ? 6 * DPI : 4 * DPI;  // 1800 or 1200
+        var sheetH = isSquare ? 4 * DPI : 6 * DPI;  // 1200 or 1800
 
-        // How many photos fit
-        var gap_mm = 3;
-        var margin_mm = 4;
-        var cols = Math.max(1, Math.floor((sheetWmm - margin_mm*2 + gap_mm) / (parseFloat(photoW_mm) + gap_mm)));
-        var rows = Math.max(1, Math.floor((sheetHmm - margin_mm*2 + gap_mm) / (parseFloat(photoH_mm) + gap_mm)));
+        // Build single canvas at exact DNP media size
+        var canvas = document.createElement('canvas');
+        canvas.width  = sheetW;
+        canvas.height = sheetH;
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, sheetW, sheetH);
 
-        console.log('Printing ' + cols + 'x' + rows + ' photos, each ' + photoW_mm + 'x' + photoH_mm + 'mm on ' + sheetWmm + 'x' + sheetHmm + 'mm sheet');
+        // Tile photos at EXACT pixel size (no scaling = correct mm)
+        var gap = Math.round(3 / 25.4 * DPI);
+        var margin = Math.round(4 / 25.4 * DPI);
+        var cols = Math.max(1, Math.floor((sheetW - margin*2 + gap) / (photoW + gap)));
+        var rows = Math.max(1, Math.floor((sheetH - margin*2 + gap) / (photoH + gap)));
+        var gridW = cols * photoW + (cols-1) * gap;
+        var gridH = rows * photoH + (rows-1) * gap;
+        var startX = Math.round((sheetW - gridW) / 2);
+        var startY = Math.round((sheetH - gridH) / 2);
 
-        // Build HTML print layout with exact mm sizes
-        var photoStyle = 'width:' + photoW_mm + 'mm;height:' + photoH_mm + 'mm;display:block;object-fit:cover;';
-        var cellStyle = 'padding:' + (gap_mm/2) + 'mm;display:inline-block;line-height:0;';
-        var photos = '';
         for (var r = 0; r < rows; r++) {
-          photos += '<div style="display:block;text-align:center;">';
           for (var cl = 0; cl < cols; cl++) {
-            photos += '<div style="' + cellStyle + '"><img src="' + photo + '" style="' + photoStyle + '"/></div>';
+            var px = startX + cl * (photoW + gap);
+            var py = startY + r  * (photoH + gap);
+            ctx.drawImage(img, 0, 0, photoW, photoH, px, py, photoW, photoH);
+            ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+            ctx.setLineDash([6,4]); ctx.lineWidth = 1;
+            ctx.strokeRect(px, py, photoW, photoH);
+            ctx.setLineDash([]);
           }
-          photos += '</div>';
         }
 
-        var printHtml = '<!DOCTYPE html><html><head><style>' +
-          '@page{size:' + sheetWmm + 'mm ' + sheetHmm + 'mm;margin:' + margin_mm + 'mm;}' +
-          'body{margin:0;padding:0;background:white;}' +
-          'img{border:0.3mm dashed #ccc;}' +
-          '</style></head><body>' + photos + '</body></html>';
+        var base64 = canvas.toDataURL('image/jpeg', 0.95).split(',')[1];
+        console.log('Canvas: ' + sheetW + 'x' + sheetH + 'px, ' + cols + 'x' + rows + ' photos');
 
-        // Use pixel/html — QZ Tray renders it via the printer driver
+        // Send as single image — no custom size, let DNP driver use its media setting
         var config = qz.configs.create(PRINTER_NAME, {
           colorType: 'color',
           copies: 1,
-          rasterize: true,
           scaleContent: false,
-          margins: 0
+          rasterize: false
         });
 
         var printData = [{
           type: 'pixel',
-          format: 'html',
-          flavor: 'plain',
-          data: printHtml,
-          options: {
-            pageWidth:  sheetWmm + 'mm',
-            pageHeight: sheetHmm + 'mm'
-          }
+          format: 'image',
+          flavor: 'base64',
+          data: base64
         }];
 
         await qz.print(config, printData);
