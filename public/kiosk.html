@@ -321,88 +321,58 @@ async function doPrint() {
 
         var photoW = img.naturalWidth;
         var photoH = img.naturalHeight;
-        var photoW_mm = photoW / 300 * 25.4;
-        var photoH_mm = photoH / 300 * 25.4;
+        var photoW_mm = (photoW / 300 * 25.4).toFixed(1);
+        var photoH_mm = (photoH / 300 * 25.4).toFixed(1);
+        var isSquare = Math.abs(photoW - photoH) < 20;
 
-        // DNP QW410 media is 6x4 inch — MUST print at this exact size
-        // Build a 6x4 (landscape 1800x1200) or 4x6 (portrait 1200x1800) canvas
-        // and tile the photos at their exact mm size within it
-        var DPI = 300;
+        // Sheet: portrait 4x6 for most, landscape 6x4 for square photos
+        var sheetWmm = isSquare ? 152.4 : 101.6;
+        var sheetHmm = isSquare ? 101.6 : 152.4;
 
-        // Choose orientation: portrait photos -> 4x6 portrait sheet
-        var isSquarePhoto = Math.abs(photoW - photoH) < 20;
-        var sheetW, sheetH, sheetWidthIn, sheetHeightIn, orientation;
-        if (isSquarePhoto) {
-          // Square (US/India 51x51): 6x4 landscape
-          sheetW = 6 * DPI; sheetH = 4 * DPI;
-          sheetWidthIn = 6; sheetHeightIn = 4;
-          orientation = 'landscape';
-        } else {
-          // Portrait: 4x6 portrait
-          sheetW = 4 * DPI; sheetH = 6 * DPI;
-          sheetWidthIn = 4; sheetHeightIn = 6;
-          orientation = 'portrait';
-        }
+        // How many photos fit
+        var gap_mm = 3;
+        var margin_mm = 4;
+        var cols = Math.max(1, Math.floor((sheetWmm - margin_mm*2 + gap_mm) / (parseFloat(photoW_mm) + gap_mm)));
+        var rows = Math.max(1, Math.floor((sheetHmm - margin_mm*2 + gap_mm) / (parseFloat(photoH_mm) + gap_mm)));
 
-        var canvas = document.createElement('canvas');
-        canvas.width = sheetW;
-        canvas.height = sheetH;
-        var ctx = canvas.getContext('2d');
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, sheetW, sheetH);
+        console.log('Printing ' + cols + 'x' + rows + ' photos, each ' + photoW_mm + 'x' + photoH_mm + 'mm on ' + sheetWmm + 'x' + sheetHmm + 'mm sheet');
 
-        // Tile photos at EXACT pixel size (no scaling — keeps correct mm dimensions)
-        var gap = Math.round(3 / 25.4 * DPI);  // 3mm gap
-
-        // Calculate how many fit
-        var cols = Math.max(1, Math.floor((sheetW + gap) / (photoW + gap)));
-        var rows = Math.max(1, Math.floor((sheetH + gap) / (photoH + gap)));
-
-        // Centre the grid
-        var gridW = cols * photoW + (cols - 1) * gap;
-        var gridH = rows * photoH + (rows - 1) * gap;
-        var startX = Math.round((sheetW - gridW) / 2);
-        var startY = Math.round((sheetH - gridH) / 2);
-
+        // Build HTML print layout with exact mm sizes
+        var photoStyle = 'width:' + photoW_mm + 'mm;height:' + photoH_mm + 'mm;display:block;object-fit:cover;';
+        var cellStyle = 'padding:' + (gap_mm/2) + 'mm;display:inline-block;line-height:0;';
+        var photos = '';
         for (var r = 0; r < rows; r++) {
-          for (var col2 = 0; col2 < cols; col2++) {
-            var px = startX + col2 * (photoW + gap);
-            var py = startY + r * (photoH + gap);
-            // Draw at EXACT size — no scaling
-            ctx.drawImage(img, 0, 0, photoW, photoH, px, py, photoW, photoH);
-            // Faint cut guides
-            ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-            ctx.setLineDash([6, 4]);
-            ctx.lineWidth = 1;
-            ctx.strokeRect(px, py, photoW, photoH);
-            ctx.setLineDash([]);
+          photos += '<div style="display:block;text-align:center;">';
+          for (var cl = 0; cl < cols; cl++) {
+            photos += '<div style="' + cellStyle + '"><img src="' + photo + '" style="' + photoStyle + '"/></div>';
           }
+          photos += '</div>';
         }
 
-        // DNP QW410: do NOT specify custom size — let the driver use its own
-        // media settings (4x6 postcard). Custom sizes are ignored by DNP drivers.
+        var printHtml = '<!DOCTYPE html><html><head><style>' +
+          '@page{size:' + sheetWmm + 'mm ' + sheetHmm + 'mm;margin:' + margin_mm + 'mm;}' +
+          'body{margin:0;padding:0;background:white;}' +
+          'img{border:0.3mm dashed #ccc;}' +
+          '</style></head><body>' + photos + '</body></html>';
+
+        // Use pixel/html — QZ Tray renders it via the printer driver
         var config = qz.configs.create(PRINTER_NAME, {
           colorType: 'color',
           copies: 1,
-          scaleContent: true,
           rasterize: true,
-          density: 300,
-          interpolation: 'bicubic',
-          margins: 0,
-          units: 'in'
+          scaleContent: false,
+          margins: 0
         });
-
-        var base64 = canvas.toDataURL('image/jpeg', 0.97).split(',')[1];
-
-        console.log('Printing ' + cols + 'x' + rows + ' photos on ' +
-          sheetWidthIn + 'x' + sheetHeightIn + 'in sheet, each photo ' +
-          photoW_mm.toFixed(0) + 'x' + photoH_mm.toFixed(0) + 'mm');
 
         var printData = [{
           type: 'pixel',
-          format: 'image',
-          flavor: 'base64',
-          data: base64
+          format: 'html',
+          flavor: 'plain',
+          data: printHtml,
+          options: {
+            pageWidth:  sheetWmm + 'mm',
+            pageHeight: sheetHmm + 'mm'
+          }
         }];
 
         await qz.print(config, printData);
