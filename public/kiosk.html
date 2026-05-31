@@ -312,8 +312,7 @@ async function doPrint() {
     var qzOk = await connectQZ();
     if (qzOk && PRINTER_NAME) {
       try {
-        // Build strip canvas from passport photo
-        // Use the same dimensions as the passport photo from the order
+        // Load passport photo
         var img = new Image();
         img.src = photo;
         await new Promise(function(resolve, reject) {
@@ -325,61 +324,79 @@ async function doPrint() {
         var photoW_mm = photoW / 300 * 25.4;
         var photoH_mm = photoH / 300 * 25.4;
 
-        // Choose grid size based on photo dimensions
-        var cols, rows;
-        if (photoW_mm <= 22 && photoH_mm <= 27) { cols = 4; rows = 4; }
-        else if (photoW_mm <= 27 && photoH_mm <= 32) { cols = 3; rows = 3; }
-        else { cols = 2; rows = 2; }
+        // DNP QW410 media is 6x4 inch — MUST print at this exact size
+        // Build a 6x4 (landscape 1800x1200) or 4x6 (portrait 1200x1800) canvas
+        // and tile the photos at their exact mm size within it
+        var DPI = 300;
 
-        var margin_px = Math.round(4 / 25.4 * 300);
-        var gap_px    = Math.round(3 / 25.4 * 300);
+        // Choose orientation: portrait photos -> 4x6 portrait sheet
+        var isSquarePhoto = Math.abs(photoW - photoH) < 20;
+        var sheetW, sheetH, sheetWidthIn, sheetHeightIn, orientation;
+        if (isSquarePhoto) {
+          // Square (US/India 51x51): 6x4 landscape
+          sheetW = 6 * DPI; sheetH = 4 * DPI;
+          sheetWidthIn = 6; sheetHeightIn = 4;
+          orientation = 'landscape';
+        } else {
+          // Portrait: 4x6 portrait
+          sheetW = 4 * DPI; sheetH = 6 * DPI;
+          sheetWidthIn = 4; sheetHeightIn = 6;
+          orientation = 'portrait';
+        }
 
-        var stripCanvas = document.createElement('canvas');
-        var stripW = cols * photoW + (cols-1) * gap_px + margin_px * 2;
-        var stripH = rows * photoH + (rows-1) * gap_px + margin_px * 2;
-        stripCanvas.width  = stripW;
-        stripCanvas.height = stripH;
-        var sctx = stripCanvas.getContext('2d');
-        sctx.fillStyle = '#ffffff';
-        sctx.fillRect(0, 0, stripW, stripH);
+        var canvas = document.createElement('canvas');
+        canvas.width = sheetW;
+        canvas.height = sheetH;
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, sheetW, sheetH);
+
+        // Tile photos at EXACT pixel size (no scaling — keeps correct mm dimensions)
+        var gap = Math.round(3 / 25.4 * DPI);  // 3mm gap
+
+        // Calculate how many fit
+        var cols = Math.max(1, Math.floor((sheetW + gap) / (photoW + gap)));
+        var rows = Math.max(1, Math.floor((sheetH + gap) / (photoH + gap)));
+
+        // Centre the grid
+        var gridW = cols * photoW + (cols - 1) * gap;
+        var gridH = rows * photoH + (rows - 1) * gap;
+        var startX = Math.round((sheetW - gridW) / 2);
+        var startY = Math.round((sheetH - gridH) / 2);
+
         for (var r = 0; r < rows; r++) {
           for (var col2 = 0; col2 < cols; col2++) {
-            sctx.drawImage(img,
-              margin_px + col2 * (photoW + gap_px),
-              margin_px + r    * (photoH + gap_px),
-              photoW, photoH);
+            var px = startX + col2 * (photoW + gap);
+            var py = startY + r * (photoH + gap);
+            // Draw at EXACT size — no scaling
+            ctx.drawImage(img, 0, 0, photoW, photoH, px, py, photoW, photoH);
+            // Faint cut guides
+            ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+            ctx.setLineDash([6, 4]);
+            ctx.lineWidth = 1;
+            ctx.strokeRect(px, py, photoW, photoH);
+            ctx.setLineDash([]);
           }
         }
 
-        // Convert to mm for config
-        var DPI = 300;
-        var widthIn  = stripW / DPI;
-        var heightIn = stripH / DPI;
-
-        // Portrait if taller than wide, landscape if wider
-        var isLandscape = stripW > stripH;
-
+        // DNP QW410: do NOT specify custom size — let the driver use its own
+        // media settings (4x6 postcard). Custom sizes are ignored by DNP drivers.
         var config = qz.configs.create(PRINTER_NAME, {
-          size: {
-            width:  isLandscape ? widthIn  : widthIn,
-            height: isLandscape ? heightIn : heightIn
-          },
-          units: 'in',
-          orientation: isLandscape ? 'landscape' : 'portrait',
-          margins: { top: 0, right: 0, bottom: 0, left: 0 },
           colorType: 'color',
           copies: 1,
-          scaleContent: false,
+          scaleContent: true,
           rasterize: true,
-          density: 300
+          density: 300,
+          interpolation: 'bicubic',
+          margins: 0,
+          units: 'in'
         });
 
-        // Convert strip canvas to base64 JPEG
-        var base64 = stripCanvas.toDataURL('image/jpeg', 0.97).split(',')[1];
+        var base64 = canvas.toDataURL('image/jpeg', 0.97).split(',')[1];
 
-        console.log('Sending to printer: ' + stripW + 'x' + stripH + 'px (' +
-          (stripW/DPI*25.4).toFixed(1) + 'x' + (stripH/DPI*25.4).toFixed(1) + 'mm) ' +
-          (isLandscape ? 'landscape' : 'portrait'));
+        console.log('Printing ' + cols + 'x' + rows + ' photos on ' +
+          sheetWidthIn + 'x' + sheetHeightIn + 'in sheet, each photo ' +
+          photoW_mm.toFixed(0) + 'x' + photoH_mm.toFixed(0) + 'mm');
 
         var printData = [{
           type: 'pixel',
