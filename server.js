@@ -77,6 +77,7 @@ var Retake = mongoose.model('Retake', retakeSchema);
 
 var printPhotoSchema = new mongoose.Schema({
   printCode:   { type: String, required: true, unique: true },
+  expiresAt:   { type: Date, default: null },  // MongoDB TTL auto-deletes after 72h
   photoData:   { type: String, required: true },
   createdAt:   { type: Date, default: Date.now, expires: 259200 }
 });
@@ -285,17 +286,24 @@ function deletePhoto(token) {
   }
 }
 
-function storePrintPhoto(printCode, imgBuffer) {
+async function storePrintPhoto(printCode, imgBuffer) {
   var base64 = imgBuffer.toString('base64');
-  PrintPhoto.findOneAndUpdate(
-    { printCode: printCode },
-    { printCode: printCode, photoData: base64, createdAt: new Date() },
-    { upsert: true, new: true }
-  ).then(function() {
-    console.log('[INFO] Print photo saved to DB for code: ' + printCode);
-  }).catch(function(e) { console.error('Print photo DB save error:', e.message); });
+  // Save to memory immediately
   printPhotoStore[printCode] = { buffer: imgBuffer, createdAt: Date.now() };
+  // Auto-delete from memory after 72 hours (GDPR compliance)
   setTimeout(function() { delete printPhotoStore[printCode]; }, 72 * 60 * 60 * 1000);
+  // Save to MongoDB (awaited — not fire-and-forget, so it survives restarts)
+  try {
+    await PrintPhoto.findOneAndUpdate(
+      { printCode: printCode },
+      { printCode: printCode, photoData: base64, createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 72 * 60 * 60 * 1000) },
+      { upsert: true, new: true }
+    );
+    console.log('[INFO] Print photo saved to DB for code: ' + printCode);
+  } catch(e) {
+    console.error('[ERROR] Print photo DB save failed:', e.message);
+  }
 }
 
 function getPrintPhoto(printCode) { return printPhotoStore[printCode] || null; }
@@ -304,7 +312,7 @@ async function getPrintPhotoAsync(printCode) {
   if (printPhotoStore[printCode]) return printPhotoStore[printCode];
   try {
     var doc = await PrintPhoto.findOne({ printCode: printCode }).lean();
-    if (doc) return { buffer: Buffer.from(doc.photoData, 'base64'), createdAt: doc.createdAt };
+    if (doc && doc.photoData) return { buffer: Buffer.from(doc.photoData, 'base64'), createdAt: doc.createdAt };
   } catch(e) { console.error('Print photo DB fetch error:', e.message); }
   return null;
 }
@@ -855,6 +863,29 @@ app.get('/api/health', function(req, res) {
     db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     removeBgKey: process.env.REMOVE_BG_KEY ? 'set (' + process.env.REMOVE_BG_KEY.substring(0,6) + '...)' : 'MISSING'
   });
+});
+
+// Debug: check order + photo status
+// Usage: /api/admin/check-order?code=PBA-537321&token=sabtech-admin-token-2024
+app.get('/api/admin/check-order', async function(req, res) {
+  if (req.query.token !== 'sabtech-admin-token-2024') return res.status(401).json({ error: 'Unauthorised' });
+  var code = (req.query.code || '').toUpperCase().trim();
+  try {
+    var order = await Order.findOne({
+      $or: [{ printCode: code }, { orderRef: code }]
+    }).lean();
+    if (!order) return res.json({ found: false, code: code });
+    var photo = await getPrintPhotoAsync(order.printCode);
+    res.json({
+      found: true,
+      orderRef: order.orderRef,
+      printCode: order.printCode,
+      printOption: order.printOption,
+      printed: order.printed,
+      photoStored: !!photo,
+      photoSize: photo ? photo.buffer.length : 0
+    });
+  } catch(e) { res.status(500).json({ error: e.message }); }
 });
 
 // ── Admin: reset print code so it can be reused for testing ──────────────────
