@@ -720,7 +720,7 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
 
     // ── Step 8: Store for print kiosk if needed ───────────
     if (printOption === 'print' && printCode) {
-      storePrintPhoto(printCode, imgBuffer);
+      await storePrintPhoto(printCode, imgBuffer);
     }
 
     deletePhoto(photoToken);
@@ -1003,7 +1003,7 @@ app.post('/api/retake/confirm', rateLimit(10, 60000), function(req, res) {
       if (isPrint) {
         newPrintCode = generatePrintCode();
         newPrintCodeExpiry = new Date(Date.now() + 72 * 60 * 60 * 1000);
-        storePrintPhoto(newPrintCode, imgBuffer);
+        storePrintPhoto(newPrintCode, imgBuffer).catch(function(e){console.error("storePrintPhoto retake error:", e.message);});
       }
       retake.used = true; retake.usedAt = new Date(); retake.save().catch(function(){});
       Order.findOneAndUpdate({ orderRef: retake.orderRef }, { retakeUsed: true, retakeUsedAt: new Date() }).catch(function(){});
