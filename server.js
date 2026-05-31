@@ -345,7 +345,25 @@ async function resizeToPassport(imgBuffer, purpose) {
   try {
     var Jimp = require('jimp');
     var image = await Jimp.read(imgBuffer);
-    image.cover(dims.w_px, dims.h_px, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_MIDDLE);
+    var iw = image.getWidth();
+    var ih = image.getHeight();
+
+    // Scale so the subject fills ~85% of the output height (face prominent)
+    // Use cover to fill then crop from centre-top
+    var scale = Math.max(dims.w_px / iw, (dims.h_px * 0.95) / ih);
+    var newW = Math.round(iw * scale);
+    var newH = Math.round(ih * scale);
+
+    image.resize(newW, newH);
+
+    // Crop: centre horizontally, anchor 8% from top (headroom)
+    var cropX = Math.max(0, Math.round((newW - dims.w_px) / 2));
+    var cropY = Math.max(0, Math.round(newH * 0.04));
+    // Clamp crop so we don't go out of bounds
+    if (cropX + dims.w_px > newW) cropX = newW - dims.w_px;
+    if (cropY + dims.h_px > newH) cropY = newH - dims.h_px;
+
+    image.crop(cropX, cropY, dims.w_px, dims.h_px);
     var result = await image.quality(95).getBufferAsync(Jimp.MIME_JPEG);
     console.log('[INFO] jimp resize success: ' + result.length + 'bytes');
     return result;
@@ -583,6 +601,10 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
 
     // ── Step 3: Always run remove.bg server-side after payment ──
     // Guarantees white background regardless of what client sent
+    // Skip remove.bg if SKIP_REMOVEBG=true in env (for testing — saves credits)
+    if (process.env.SKIP_REMOVEBG === 'true') {
+      console.log('[INFO] SKIP_REMOVEBG=true — skipping remove.bg for: ' + orderRef);
+    } else {
     console.log('[INFO] Running server-side remove.bg for order: ' + orderRef + ' imgSize=' + imgBuffer.length + 'bytes');
     try {
       var removedBuffer = await removeBackgroundServer(imgBuffer, 'image/jpeg', purpose);
@@ -600,6 +622,7 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
         console.error('[ERROR] remove.bg response status: ' + bgErr.response.status);
         console.error('[ERROR] remove.bg response data: ' + JSON.stringify(bgErr.response.data || ''));
       }
+    } // end SKIP_REMOVEBG else
     }
 
 
@@ -832,6 +855,29 @@ app.get('/api/health', function(req, res) {
     db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     removeBgKey: process.env.REMOVE_BG_KEY ? 'set (' + process.env.REMOVE_BG_KEY.substring(0,6) + '...)' : 'MISSING'
   });
+});
+
+// ── Admin: reset print code so it can be reused for testing ──────────────────
+// Usage: GET /api/admin/reset-print?code=PBA-XXXXXX&token=sabtech-admin-token-2024
+app.get('/api/admin/reset-print', async function(req, res) {
+  if (req.query.token !== 'sabtech-admin-token-2024') {
+    return res.status(401).json({ error: 'Unauthorised' });
+  }
+  var code = (req.query.code || '').toUpperCase().trim();
+  if (!code) return res.status(400).json({ error: 'code required' });
+  try {
+    var result = await Order.updateOne(
+      { orderRef: code },
+      { $set: { printed: false, printedAt: null } }
+    );
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: 'Order not found: ' + code });
+    }
+    console.log('[ADMIN] Print code reset: ' + code);
+    res.json({ success: true, message: 'Print code reset — ' + code + ' can be used again' });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── Test remove.bg connectivity (admin only) ──────────────
