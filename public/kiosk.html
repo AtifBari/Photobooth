@@ -342,20 +342,20 @@ async function connectQZ() {
   }
 }
 
+async function markPrinted() {
+  var mr = await fetch('/api/kiosk/mark-printed', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({code: currentCode, locationId: LOCATION})
+  });
+  var md = await mr.json();
+  if (!mr.ok || !md.success) throw new Error(md.error || 'Failed to mark as printed');
+  return md;
+}
+
 async function doPrint() {
   show('stepLoading');
   try {
-    var mr = await fetch('/api/kiosk/mark-printed', {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({code: currentCode, locationId: LOCATION})
-    });
-    var md = await mr.json();
-    if (!mr.ok || !md.success) {
-      document.getElementById('errMsg').textContent = md.error || 'Print failed.';
-      show('stepError'); return;
-    }
-
     var photo = currentPhotoData;
 
     // ── Try QZ Tray silent print ──────────────────────────
@@ -400,10 +400,16 @@ async function doPrint() {
 
         await qz.print(config, printData);
         console.log('QZ Tray print sent ✅');
+
+        // Only mark as printed AFTER successful QZ Tray print
+        await markPrinted();
         setTimeout(function(){ show('stepSuccess'); }, 1500);
         return;
       } catch(qzErr) {
-        console.warn('QZ print failed, falling back to dialog:', qzErr.message);
+        console.warn('QZ print failed:', qzErr.message);
+        document.getElementById('errMsg').textContent = 'Printer error: ' + qzErr.message + '. Code is still valid — please try again.';
+        show('stepError');
+        return;
       }
     }
 
@@ -413,10 +419,13 @@ async function doPrint() {
     for(var i=0;i<4;i++) w.document.write('<div class="p"><img src="'+photo+'"/></div>');
     w.document.write('<script>window.onload=function(){window.print();setTimeout(function(){window.close();},2000);};<\/script></body></html>');
     w.document.close();
+
+    // Mark printed after browser dialog opens
+    await markPrinted();
     setTimeout(function(){ show('stepSuccess'); }, 3000);
 
   } catch(e) {
-    document.getElementById('errMsg').textContent = 'Connection error. Please try again.';
+    document.getElementById('errMsg').textContent = e.message || 'Connection error. Please try again.';
     show('stepError');
   }
 }
