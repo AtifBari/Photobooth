@@ -84,8 +84,6 @@ body{font-family:Arial,sans-serif;background:#0D1B2E;color:white;min-height:100v
 <div class="card hidden" id="stepConfirm">
   <h1>Is this <span>your photo?</span></h1>
   <p>Check your photo and details below before printing.</p>
-
-  <!-- Photo preview -->
   <div style="margin:16px 0;text-align:center;">
     <div style="font-size:11px;color:#8A8680;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Your Passport Photo</div>
     <div style="display:inline-block;border:3px solid rgba(201,168,76,0.5);border-radius:10px;overflow:hidden;background:#1a1a1a;padding:4px;">
@@ -93,11 +91,8 @@ body{font-family:Arial,sans-serif;background:#0D1B2E;color:white;min-height:100v
     </div>
     <div style="font-size:12px;color:#8A8680;margin-top:8px;">4 copies will be printed on one 6×4 sheet</div>
   </div>
-
   <div class="order-box" id="orderBox"></div>
   <div class="msg" id="confirmMsg"></div>
-
-  <!-- Two step confirmation -->
   <button class="btn btn-gold" onclick="confirmAndPrint()" id="printBtn">✅ Yes — Print My Photo</button>
   <button class="btn btn-ghost" onclick="goBack()" style="margin-top:8px;">❌ No — Try different code</button>
 </div>
@@ -161,7 +156,6 @@ async function doVerify() {
   currentCode = 'PBA-' + digits;
   show('stepLoading');
   try {
-    // Verify code
     var r = await fetch('/api/kiosk/verify-code', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -177,7 +171,6 @@ async function doVerify() {
     }
     currentOrder = d;
 
-    // Fetch photo for preview
     var pr = await fetch('/api/kiosk/get-photo', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
@@ -193,13 +186,9 @@ async function doVerify() {
       return;
     }
 
-    // Store photo data for printing
     currentPhotoData = pd.photo;
-
-    // Show photo preview
     document.getElementById('photoPreview').src = pd.photo;
 
-    // Build order details
     var exp = new Date(d.expiresAt).toLocaleString('en-GB');
     document.getElementById('orderBox').innerHTML =
       '<div class="order-row"><label>Name</label><span>'+d.name+'</span></div>'+
@@ -218,46 +207,42 @@ async function doVerify() {
 }
 
 async function confirmAndPrint() {
-  // Second confirmation
   var btn = document.getElementById('printBtn');
   btn.textContent = '⏳ Sending to printer…';
   btn.disabled = true;
   await doPrint();
 }
 
-// ── QZ Tray connection ────────────────────────────────────
+// ── QZ Tray ───────────────────────────────────────────────
 var qzConnected = false;
-var PRINTER_NAME = ''; // Auto-detect or set manually
+var PRINTER_NAME = '';
 
 async function getPrinterName() {
   try {
-    // Use exact printer name directly
-    var exactName = 'HP Neverstop Laser MFP 1202nw';
-    var printers = await qz.printers.find(exactName);
-    console.log('Printer search result:', printers);
-
+    // Auto-detect: get default printer (no hardcoded name)
+    var defaultPrinter = await qz.printers.getDefault();
+    console.log('Default printer:', defaultPrinter);
+    if (defaultPrinter) return defaultPrinter;
+  } catch(e) {
+    console.warn('Could not get default printer:', e.message);
+  }
+  // Try to find any DNP printer
+  try {
+    var printers = await qz.printers.find('DNP');
     if (printers && printers.length > 0) {
-      // qz.printers.find returns array — get full name
       var name = Array.isArray(printers) ? printers[0] : printers;
-      console.log('Using printer:', name);
+      console.log('Found DNP printer:', name);
       return name;
     }
-
-    // Fallback to default
-    var defaultPrinter = await qz.printers.getDefault();
-    console.log('Using default printer:', defaultPrinter);
-    return defaultPrinter;
   } catch(e) {
-    console.warn('Could not find printer:', e.message);
-    // Last resort — use hardcoded name
-    return 'HP Neverstop Laser MFP 1202nw';
+    console.warn('DNP search failed:', e.message);
   }
+  return null;
 }
 
 async function connectQZ() {
   if (qzConnected) return true;
   try {
-    // Use QZ Tray demo certificate for development
     qz.security.setCertificatePromise(function(resolve, reject) {
       resolve('-----BEGIN CERTIFICATE-----\n' +
         'MIIECzCCAvOgAwIBAgIGAZ5OfRrDMA0GCSqGSIb3DQEBCwUAMIGiMQswCQYDVQQG\n' +
@@ -334,16 +319,25 @@ async function connectQZ() {
     if (!qz.websocket.isActive()) {
       await qz.websocket.connect();
     }
+
     PRINTER_NAME = await getPrinterName();
     qzConnected = true;
-    console.log('QZ Tray connected ✅ Printer:', PRINTER_NAME);
-    document.getElementById('printerStatus').textContent = '🟢 Printer ready: ' + PRINTER_NAME;
-    document.getElementById('printerStatus').style.color = '#86efac';
+
+    var statusEl = document.getElementById('printerStatus');
+    if (PRINTER_NAME) {
+      console.log('QZ Tray connected, printer:', PRINTER_NAME);
+      statusEl.textContent = '🟢 Printer Online';
+      statusEl.style.color = '#86efac';
+    } else {
+      statusEl.textContent = '🟡 Printer Online — no printer found';
+      statusEl.style.color = '#fde68a';
+    }
     return true;
   } catch(e) {
     console.warn('QZ Tray not available:', e.message);
-    document.getElementById('printerStatus').textContent = '🔴 Printer offline — check QZ Tray is running';
-    document.getElementById('printerStatus').style.color = '#fca5a5';
+    var statusEl = document.getElementById('printerStatus');
+    statusEl.textContent = '🔴 Printer Offline';
+    statusEl.style.color = '#fca5a5';
     return false;
   }
 }
@@ -351,7 +345,6 @@ async function connectQZ() {
 async function doPrint() {
   show('stepLoading');
   try {
-    // Mark printed first
     var mr = await fetch('/api/kiosk/mark-printed', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -365,7 +358,7 @@ async function doPrint() {
 
     var photo = currentPhotoData;
 
-    // ── Try QZ Tray silent print first ───────────────────
+    // ── Try QZ Tray silent print ──────────────────────────
     var qzOk = await connectQZ();
     if (qzOk && PRINTER_NAME) {
       try {
@@ -380,30 +373,22 @@ async function doPrint() {
           rasterize: true
         });
 
-        // Build 4-up HTML print layout
-        var printHtml = `
-          <html>
-          <head>
-          <style>
-            * { margin: 0; padding: 0; box-sizing: border-box; }
-            @page { size: 6in 4in; margin: 0; }
-            body { width: 6in; height: 4in; display: grid;
-                   grid-template-columns: 1fr 1fr;
-                   grid-template-rows: 1fr 1fr;
-                   background: white; }
-            .p { display: flex; align-items: center; justify-content: center;
-                 padding: 6px; border: 0.5px dashed #ddd; }
-            .p img { max-width: 100%; max-height: 100%; object-fit: contain; }
-          </style>
-          </head>
-          <body>
-            <div class="p"><img src="${photo}"/></div>
-            <div class="p"><img src="${photo}"/></div>
-            <div class="p"><img src="${photo}"/></div>
-            <div class="p"><img src="${photo}"/></div>
-          </body>
-          </html>
-        `;
+        var printHtml = '<html><head><style>' +
+          '* { margin: 0; padding: 0; box-sizing: border-box; }' +
+          '@page { size: 6in 4in; margin: 0; }' +
+          'body { width: 6in; height: 4in; display: grid;' +
+          '       grid-template-columns: 1fr 1fr;' +
+          '       grid-template-rows: 1fr 1fr;' +
+          '       background: white; }' +
+          '.p { display: flex; align-items: center; justify-content: center;' +
+          '     padding: 6px; border: 0.5px dashed #ddd; }' +
+          '.p img { max-width: 100%; max-height: 100%; object-fit: contain; }' +
+          '</style></head><body>' +
+          '<div class="p"><img src="' + photo + '"/></div>' +
+          '<div class="p"><img src="' + photo + '"/></div>' +
+          '<div class="p"><img src="' + photo + '"/></div>' +
+          '<div class="p"><img src="' + photo + '"/></div>' +
+          '</body></html>';
 
         var printData = [{
           type: 'pixel',
@@ -436,7 +421,7 @@ async function doPrint() {
   }
 }
 
-// Try connecting QZ on page load
+// Connect on page load
 window.addEventListener('load', function() {
   setTimeout(connectQZ, 2000);
 });
