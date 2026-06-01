@@ -356,9 +356,6 @@ async function resizeToPassport(imgBuffer, purpose) {
     var iw = image.getWidth();
     var ih = image.getHeight();
 
-    var iw = image.getWidth();
-    var ih = image.getHeight();
-
     // Step 1: Scale so width matches passport width exactly
     var scale = dims.w_px / iw;
     var scaledH = Math.round(ih * scale);
