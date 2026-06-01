@@ -356,10 +356,25 @@ async function resizeToPassport(imgBuffer, purpose) {
     var iw = image.getWidth();
     var ih = image.getHeight();
 
-    // remove.bg already cropped tightly to subject with top positioning
-    // Use cover with top alignment to fit to exact passport dimensions
-    // VERTICAL_ALIGN_TOP keeps head at top, trims body at bottom
-    image.cover(dims.w_px, dims.h_px, Jimp.HORIZONTAL_ALIGN_CENTER | Jimp.VERTICAL_ALIGN_TOP);
+    var iw = image.getWidth();
+    var ih = image.getHeight();
+
+    // Step 1: Scale so width matches passport width exactly
+    var scale = dims.w_px / iw;
+    var scaledH = Math.round(ih * scale);
+    image.resize(dims.w_px, scaledH);
+
+    // Step 2: Crop height — take passport height starting from ~8% from top
+    // This gives headroom above crown and keeps shoulders in frame
+    // If scaled image is shorter than passport height, just resize to fit
+    if (scaledH <= dims.h_px) {
+      image.resize(dims.w_px, dims.h_px);
+    } else {
+      var cropY = Math.round(scaledH * 0.08);
+      // Make sure we have enough height
+      if (cropY + dims.h_px > scaledH) cropY = scaledH - dims.h_px;
+      image.crop(0, cropY, dims.w_px, dims.h_px);
+    }
     var result = await image.quality(95).getBufferAsync(Jimp.MIME_JPEG);
     console.log('[INFO] jimp resize success: ' + result.length + 'bytes');
     return result;
@@ -406,14 +421,10 @@ function removeBackgroundServer(imgBuffer, mimeType, purpose) {
       contentType: mimeType || 'image/jpeg',
       knownLength: imgBuffer.length
     });
-    fd.append('size', 'auto');
+    fd.append('size', 'full');
     fd.append('type', 'person');
     fd.append('bg_color', 'ffffff');
     fd.append('format', 'jpg');
-    fd.append('crop', 'true');
-    fd.append('crop_margin', '5%');
-    fd.append('scale', '85%');
-    fd.append('position', 'top');
 
     console.log('[INFO] Calling remove.bg, imgSize=' + imgBuffer.length + ' key=' + (process.env.REMOVE_BG_KEY||'').substring(0,8) + '...');
 
