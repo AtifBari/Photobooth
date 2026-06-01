@@ -1178,21 +1178,16 @@ function togglePayBtn() {
   }
 }
 
-// ── Camera button — webcam on desktop, capture on mobile ──
+// ── Camera button — oval guide webcam on ALL devices ──
 (function() {
-  var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-  if (isMobile) {
-    document.getElementById('photoFileCamera').setAttribute('capture', 'environment');
-  } else {
-    document.getElementById('takePhotoLabel').addEventListener('click', function(e) {
-      e.preventDefault();
-      if (!document.getElementById('photoConsent').checked) {
-        setMsg('photoStatus', 'Please tick the consent box above before taking a photo.', 'error');
-        return;
-      }
-      openWebcam();
-    });
-  }
+  document.getElementById('takePhotoLabel').addEventListener('click', function(e) {
+    e.preventDefault();
+    if (!document.getElementById('photoConsent').checked) {
+      setMsg('photoStatus', 'Please tick the consent box above before taking a photo.', 'error');
+      return;
+    }
+    openWebcam();
+  });
 })();
 
 function openWebcam() {
@@ -1282,7 +1277,7 @@ function openWebcam() {
 
   var isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   var constraints = isMobile
-    ? { video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 1280 } } }
+    ? { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1080 }, height: { ideal: 1920 } } }
     : { video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } };
 
   navigator.mediaDevices.getUserMedia(constraints)
