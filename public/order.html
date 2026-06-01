@@ -1136,6 +1136,22 @@ function formatPhone(input) {
   input.classList.toggle('err', !ok && val.length > 0);
 }
 function updatePrintOption() {
+  // Update pay button label when print option changes
+  var _p = PRICES[currentCurrency] || PRICES['GBP'];
+  var _isPrint = (document.querySelector('input[name="printOption"]:checked') || {}).value === 'print';
+  var payBtn = document.getElementById('payBtn');
+  if (payBtn && paymentIntentSecret) {
+    payBtn.textContent = 'Pay ' + (_isPrint ? _p.printLabel : _p.digitalLabel);
+  }
+  // Update payment request button amount if active
+  if (window._paymentRequest) {
+    try {
+      window._paymentRequest.update({
+        total: { label: 'Photobooth App', amount: _isPrint ? _p.print : _p.digital },
+        currency: (_p.currency || _p.name || 'gbp').toLowerCase()
+      });
+    } catch(e) { console.warn('PR update failed:', e.message); }
+  }
   var isPrint = document.querySelector('input[name="printOption"]:checked') &&
                 document.querySelector('input[name="printOption"]:checked').value === 'print';
   var p = PRICES[currentCurrency] || PRICES['GBP'];
@@ -1891,89 +1907,85 @@ async function buildPassport(imgData){
   buildStrip(passC,outW,outH);
 }
 function buildStrip(src, srcW, srcH) {
-  // Build a print-ready strip with 4 photos in a 2x2 grid
-  // Layout adapts to photo dimensions:
-  //   Portrait photos (e.g. 35x45mm): 4x6 inch portrait = 1200x1800px
-  //   Square photos (e.g. 51x51mm US/India): 6x4 inch landscape = 1800x1200px
-  //   Wide photos (e.g. 50x70mm Canada): 4x6 inch portrait = 1200x1800px
+  // Build a tight strip — exact size needed for the photos, no wasted paper
+  // DNP QW410 cuts to exact length from the roll
   var DPI = 300;
-
-  // Exact passport photo dimensions at 300 DPI (no scaling, no pixelation)
   var photoW = srcW;
   var photoH = srcH;
 
-  // Choose print orientation based on photo aspect ratio
-  var isSquare = (srcW === srcH);
-  var isLandscapePhoto = (srcW > srcH);
+  var margin_mm = 4;   // 4mm border each side
+  var gap_mm    = 3;   // 3mm gap between photos
+  var margin_px = Math.round(margin_mm / 25.4 * DPI);
+  var gap_px    = Math.round(gap_mm    / 25.4 * DPI);
 
-  var printW, printH;
-  if (isSquare || isLandscapePhoto) {
-    // Square / landscape: use 6x4 landscape
-    printW = Math.round(6 * DPI);   // 1800px
-    printH = Math.round(4 * DPI);   // 1200px
+  // Choose grid based on photo size
+  var cols, rows;
+  var photoW_mm = photoW / DPI * 25.4;
+  var photoH_mm = photoH / DPI * 25.4;
+
+  if (photoW_mm <= 22 && photoH_mm <= 27) {
+    // Very small (PCC 20x25): 4x4 = 16 photos
+    cols = 4; rows = 4;
+  } else if (photoW_mm <= 27 && photoH_mm <= 32) {
+    // Small (NID 25x30): 3x3 = 9 photos
+    cols = 3; rows = 3;
   } else {
-    // Portrait: use 4x6 portrait
-    printW = Math.round(4 * DPI);   // 1200px
-    printH = Math.round(6 * DPI);   // 1800px
+    // Standard: 2x2 = 4 photos
+    cols = 2; rows = 2;
   }
 
-  // Centre the 2x2 grid on the print
-  var gap = Math.round(0.1 * DPI);    // 30px (3mm) gap between photos
-  var totalGridW = photoW * 2 + gap;
-  var totalGridH = photoH * 2 + gap;
-  var padX = Math.round((printW - totalGridW) / 2);
-  var padY = Math.round((printH - totalGridH) / 2);
+  // Calculate exact canvas size — only as big as needed
+  var printW = cols * photoW + (cols - 1) * gap_px + margin_px * 2;
+  var printH = rows * photoH + (rows - 1) * gap_px + margin_px * 2;
 
-  // Create print canvas
+  // Create canvas at exact size
   stripC = document.createElement('canvas');
-  stripC.width = printW;
+  stripC.width  = printW;
   stripC.height = printH;
   var sc = stripC.getContext('2d');
-
-  // White background
   sc.fillStyle = '#ffffff';
   sc.fillRect(0, 0, printW, printH);
 
-  // Draw 4 photos at exact size — NO scaling, NO pixelation
-  var positions = [
-    { x: padX,              y: padY },
-    { x: padX + photoW + gap, y: padY },
-    { x: padX,              y: padY + photoH + gap },
-    { x: padX + photoW + gap, y: padY + photoH + gap }
-  ];
+  // Draw photos in grid
+  for (var row = 0; row < rows; row++) {
+    for (var col = 0; col < cols; col++) {
+      var x = margin_px + col * (photoW + gap_px);
+      var y = margin_px + row * (photoH + gap_px);
+      sc.drawImage(src, 0, 0, srcW, srcH, x, y, photoW, photoH);
+      // Cut guides
+      sc.strokeStyle = 'rgba(0,0,0,0.25)';
+      sc.setLineDash([6, 4]);
+      sc.lineWidth = 1;
+      sc.strokeRect(x - 0.5, y - 0.5, photoW + 1, photoH + 1);
+      sc.setLineDash([]);
+    }
+  }
 
-  positions.forEach(function(pos) {
-    // Draw photo at exact 1:1 size
-    sc.drawImage(src, 0, 0, srcW, srcH, pos.x, pos.y, photoW, photoH);
-    // Cut guides
-    sc.strokeStyle = 'rgba(0,0,0,0.2)';
-    sc.setLineDash([8, 4]);
-    sc.lineWidth = 1;
-    sc.strokeRect(pos.x - 0.5, pos.y - 0.5, photoW + 1, photoH + 1);
-    sc.setLineDash([]);
-  });
+  // Update preview
+  var row2 = document.getElementById('stripRow');
+  row2.innerHTML = '';
+  row2.style.display = 'grid';
+  row2.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+  row2.style.gap = '3px';
+  row2.style.maxWidth = '200px';
+  row2.style.margin = '0 auto';
 
-  // Update preview strip
-  var row = document.getElementById('stripRow');
-  row.innerHTML = '';
-  row.style.display = 'grid';
-  row.style.gridTemplateColumns = '1fr 1fr';
-  row.style.gap = '4px';
-  row.style.maxWidth = '200px';
-  row.style.margin = '0 auto';
-
-  positions.forEach(function() {
+  for (var i = 0; i < cols * Math.min(rows, 2); i++) {
     var m = document.createElement('canvas');
-    var previewW = 80;
+    var previewW = Math.floor(180 / cols);
     var previewH = Math.round(previewW * photoH / photoW);
-    m.width = previewW;
-    m.height = previewH;
+    m.width = previewW; m.height = previewH;
     m.style.width = '100%';
-    m.style.borderRadius = '3px';
+    m.style.borderRadius = '2px';
     m.style.border = '0.5px dashed rgba(0,0,0,0.2)';
     m.getContext('2d').drawImage(src, 0, 0, srcW, srcH, 0, 0, previewW, previewH);
-    row.appendChild(m);
-  });
+    row2.appendChild(m);
+  }
+
+  // Log actual print size
+  console.log('Strip: ' + cols + 'x' + rows + ' = ' + (cols*rows) + ' photos, canvas: ' +
+    printW + 'x' + printH + 'px (' +
+    (printW/DPI*25.4).toFixed(1) + 'x' + (printH/DPI*25.4).toFixed(1) + 'mm)');
 }
 function loadImg(src){return new Promise((r,j)=>{const i=new Image();i.onload=()=>r(i);i.onerror=()=>j(new Error('Load failed'));i.src=src;});}
 
@@ -2106,7 +2118,9 @@ function s3(){
   }).then(function(r){ return r.json(); }).then(function(d){
     if(d.clientSecret){
       paymentIntentSecret = d.clientSecret;
-      payBtn.textContent = 'Pay ' + (PRICES[currentCurrency]||PRICES['GBP']).digitalLabel;
+      var _p = PRICES[currentCurrency] || PRICES['GBP'];
+      var _isPrint = (document.querySelector('input[name="printOption"]:checked') || {}).value === 'print';
+      payBtn.textContent = 'Pay ' + (_isPrint ? _p.printLabel : _p.digitalLabel);
       var terms = document.getElementById('termsConsent');
       if (terms && terms.checked) payBtn.disabled = false;
     } else {
