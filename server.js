@@ -83,6 +83,21 @@ var printPhotoSchema = new mongoose.Schema({
 });
 var PrintPhoto = mongoose.model('PrintPhoto', printPhotoSchema);
 
+var orderLogSchema = new mongoose.Schema({
+  orderRef:  { type: String, required: true },
+  ts:        { type: Date, default: Date.now },
+  event:     String,
+  detail:    String
+});
+orderLogSchema.index({ orderRef: 1 });
+orderLogSchema.index({ ts: -1 });
+var OrderLog = mongoose.model('OrderLog', orderLogSchema);
+
+function logOrder(orderRef, event, detail) {
+  new OrderLog({ orderRef: orderRef, ts: new Date(), event: event, detail: detail || '' })
+    .save().catch(function(){});
+}
+
 var locationSchema = new mongoose.Schema({
   locationId:   { type: String, required: true, unique: true },
   name:         String,
@@ -614,6 +629,7 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
       console.log('[INFO] SKIP_REMOVEBG=true — skipping remove.bg for: ' + orderRef);
     } else {
     console.log('[INFO] Running server-side remove.bg for order: ' + orderRef + ' imgSize=' + imgBuffer.length + 'bytes');
+    logOrder(orderRef, 'removebg_start', 'imgSize=' + imgBuffer.length);
     try {
       var removedBuffer = await removeBackgroundServer(imgBuffer, 'image/jpeg', purpose);
       if (!removedBuffer || removedBuffer.length < 1000) {
@@ -621,10 +637,14 @@ app.post('/api/confirm-order', rateLimit(10, 60000), async function(req, res) {
       }
       imgBuffer = removedBuffer;
       console.log('[INFO] remove.bg success for: ' + orderRef + ' resultSize=' + imgBuffer.length + 'bytes');
+      logOrder(orderRef, 'removebg_success', 'resultSize=' + imgBuffer.length);
       // Resize to exact passport dimensions
+      var preSize = imgBuffer.length;
       imgBuffer = await resizeToPassport(imgBuffer, purpose);
+      logOrder(orderRef, 'resize_done', 'before=' + preSize + ' after=' + imgBuffer.length);
     } catch(bgErr) {
       Sentry.captureException(bgErr);
+      logOrder(orderRef, 'removebg_error', bgErr.message);
       console.error('[ERROR] remove.bg FAILED for ' + orderRef + ': ' + bgErr.message);
       if (bgErr.response) {
         console.error('[ERROR] remove.bg response status: ' + bgErr.response.status);
@@ -867,6 +887,16 @@ app.get('/api/health', function(req, res) {
 
 // Debug: check order + photo status
 // Usage: /api/admin/check-order?code=PBA-537321&token=sabtech-admin-token-2024
+app.get('/api/admin/order-log', async function(req, res) {
+  if (req.query.token !== 'sabtech-admin-token-2024') return res.status(401).json({ error: 'Unauthorised' });
+  var code = (req.query.code || '').toUpperCase().trim();
+  try {
+    var logs = await OrderLog.find({ orderRef: { $regex: code, $options: 'i' } })
+      .sort({ ts: -1 }).limit(20).lean();
+    res.json({ logs: logs });
+  } catch(e) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/admin/check-order', async function(req, res) {
   if (req.query.token !== 'sabtech-admin-token-2024') return res.status(401).json({ error: 'Unauthorised' });
   var code = (req.query.code || '').toUpperCase().trim();
