@@ -985,7 +985,7 @@ const PURPOSES={
   'uk-passport':    ['UK Passport — 35×45mm'],
   'us-passport':    ['US Passport — 51×51mm'],
   'eu-passport':    ['EU Passport — 35×45mm'],
-  'indian-passport':['Indian Passport — 35×45mm','Indian PCC / Police Clearance — 20×25mm','Surrender / Renunciation Certificate — 35×45mm'],
+  'indian-passport':['Indian Passport — 35×45mm','Indian PCC / Police Clearance — 51×51mm','Surrender / Renunciation Certificate — 35×45mm'],
   'pakistani-passport':['Pakistani Passport — 35×45mm','NICOP / POC — 35×45mm','CNIC — 35×45mm'],
   'bangladeshi-passport':['Bangladeshi Passport — 35×45mm','National ID (NID) — 25×30mm'],
   'sri-lankan-passport':['Sri Lankan Passport — 35×45mm'],
@@ -1034,7 +1034,7 @@ const PURPOSES={
   'driving':        ['UK Driving Licence — 35×45mm'],
   'id-card':        ['National ID / Biometric Card — 35×45mm'],
   'brp':            ['BRP / Biometric Residence Permit — 35×45mm'],
-  'misc':           ['Standard ICAO — 35×45mm','US Standard — 51×51mm','Canada Standard — 50×70mm','Middle East Standard — 40×60mm','Indian PCC — 20×25mm'],
+  'misc':           ['Standard ICAO — 35×45mm','US Standard — 51×51mm','Canada Standard — 50×70mm','Middle East Standard — 40×60mm','Indian PCC — 51×51mm'],
 };
 
 // ── Photo size lookup ─────────────────────────────────────
@@ -1288,9 +1288,39 @@ function openWebcam() {
       return video.play();
     })
     .catch(function(err) {
-      console.warn('Camera error:', err);
-      closeWebcam();
-      alert('Camera not available. Please use "Choose from Gallery" to upload a photo.');
+      console.warn('Camera error:', err.name, err.message);
+      // Show friendly error inside the modal instead of closing it
+      var modal = document.getElementById('webcamModal');
+      if (modal) {
+        var errMsg = 'Camera not available.';
+        if (err.name === 'NotAllowedError') errMsg = 'Camera permission denied.';
+        else if (err.name === 'NotFoundError') errMsg = 'No camera found on this device.';
+        else if (err.name === 'NotReadableError') errMsg = 'Camera is in use by another app.';
+        modal.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;padding:30px;text-align:center;color:white;">' +
+          '<div style="font-size:48px;margin-bottom:16px;">📷</div>' +
+          '<h2 style="color:#F5D06A;margin-bottom:12px;">' + errMsg + '</h2>' +
+          '<p style="color:#8a9bb0;margin-bottom:24px;font-size:14px;">Please allow camera access in your browser settings, or use the gallery to upload a photo instead.</p>' +
+          '<label for="photoFileGalleryFallback" style="display:block;background:linear-gradient(135deg,#F5D06A,#C8920A);color:#0A0A0A;padding:14px 28px;border-radius:99px;font-weight:600;font-size:15px;cursor:pointer;margin-bottom:12px;">📁 Choose from Gallery</label>' +
+          '<input type="file" id="photoFileGalleryFallback" accept="image/*" style="display:none"/>' +
+          '<button onclick="closeWebcam()" style="background:transparent;color:#8a9bb0;border:1px solid rgba(255,255,255,0.2);padding:10px 24px;border-radius:99px;font-size:14px;cursor:pointer;">✕ Cancel</button>' +
+          '</div>';
+        // Wire up the fallback gallery input
+        setTimeout(function() {
+          var inp = document.getElementById('photoFileGalleryFallback');
+          if (inp) {
+            inp.addEventListener('change', function(e) {
+              if (e.target.files[0]) {
+                rawPhotoFile = e.target.files[0];
+                closeWebcam();
+                doPhoto(e.target.files[0]);
+              }
+            });
+          }
+        }, 100);
+      } else {
+        closeWebcam();
+        alert('Camera not available. Please use "Choose from Gallery" to upload a photo.');
+      }
     });
 }
 
